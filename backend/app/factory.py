@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from loguru import logger
 from backend.config.settings import settings
 from backend.core.exceptions import SuperAIError
@@ -60,6 +60,10 @@ def create_app() -> FastAPI:
     from backend.api.ws.chat_ws import ws_router
     app.include_router(api_router, prefix="/api/v1")
     app.include_router(ws_router,  prefix="/ws")
+
+    @app.get("/", include_in_schema=False)
+    async def root() -> RedirectResponse:
+        return RedirectResponse(url="/docs", status_code=307)
 
     @app.get("/health", tags=["system"])
     async def health() -> dict:
