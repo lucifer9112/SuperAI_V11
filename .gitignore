@@ -23,4 +23,3 @@ frontend/tsconfig.tsbuildinfo
 *.tar
 *.zip
 .DS_Store
-{backend/
