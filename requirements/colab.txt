@@ -1,0 +1,35 @@
+# ================================================================
+# SuperAI V11 - requirements/colab.txt
+# Colab T4 GPU optimised (torch pre-installed, skipped here)
+# Run: pip install -r requirements/colab.txt
+# ================================================================
+
+-r base.txt
+
+# AI/ML (torch pre-installed in Colab)
+transformers==4.45.2
+accelerate==0.34.2
+sentence-transformers==3.1.1
+bitsandbytes==0.43.3
+
+# Vector DB
+faiss-cpu==1.8.0
+
+# Voice
+openai-whisper==20240930
+gtts==2.5.3
+soundfile==0.12.1
+
+# Files
+pdfplumber==0.11.4
+python-docx==1.1.2
+openpyxl==3.1.5
+
+# Colab tunnel
+pyngrok==7.2.0
+nest-asyncio==1.6.0
+
+# Training deps (install separately before training)
+# trl>=0.12.0
+# peft>=0.13.0
+# datasets>=2.20.0

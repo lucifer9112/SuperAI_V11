@@ -1,0 +1,300 @@
+"""
+SuperAI V11 — backend/core/orchestrator.py
+
+V11 FULL PIPELINE (15 steps):
+  [F8]  AI Security assessment
+  [F11] Personality emotion update
+  [F6]  Correction detection
+  [Task Router] classify + select model
+  [F3]  Unified memory retrieval
+  [F5]  RAG++ web knowledge
+  [V11-S2] Tool Calling Engine — enrich prompt with tool outputs
+  [Prompt Build] assemble full context
+  [F10] Task queue OR direct inference
+  [V11-S3] Consensus — run N models if configured
+  [F1]  Self-reflection — confidence + critique
+  [F6]  Log low-confidence
+  [F11] Personalize response
+  [V11-S1] Score with reward model
+  [Memory] persist turn + episodic
+"""
+from __future__ import annotations
+import asyncio, time, uuid
+from typing import AsyncGenerator, List, Optional
+from loguru import logger
+from backend.config.settings import PersonalitySettings
+from backend.core.exceptions import SecurityViolationError, ModelInferenceError
+from backend.models.schemas import ChatRequest, ChatResponse, CodeRequest, CodeResponse, FileProcessResponse, TaskType
+
+
+class OrchestratorV11:
+    def __init__(
+        self,
+        model_loader, memory_svc, agent_svc, voice_svc, vision_svc,
+        security_engine, task_router, monitoring_svc, personality_cfg: PersonalitySettings,
+        # V10 features
+        reflection_engine=None, learning_pipeline=None, unified_memory=None,
+        parallel_executor=None, rag_engine=None, self_improvement=None,
+        model_registry=None, ai_security=None, fusion_engine=None,
+        task_queue=None, personality_engine=None,
+        # V11 new features
+        rlhf_pipeline=None,        # S1: RLHF
+        tool_engine=None,          # S2: Tool Calling
+        consensus_engine=None,     # S3: Multi-Model Consensus
+    ) -> None:
+        # V9/V10 core
+        self._models=model_loader; self._memory=memory_svc; self._agents=agent_svc
+        self._voice=voice_svc; self._vision=vision_svc; self._security=security_engine
+        self._router=task_router; self._monitoring=monitoring_svc
+        self._personality_cfg=personality_cfg
+        # V10
+        self._reflection=reflection_engine; self._learning=learning_pipeline
+        self._uni_memory=unified_memory; self._parallel=parallel_executor
+        self._rag=rag_engine; self._improve=self_improvement
+        self._registry=model_registry; self._ai_security=ai_security
+        self._fusion=fusion_engine; self._task_queue=task_queue
+        self._personality=personality_engine
+        # V11
+        self._rlhf      = rlhf_pipeline
+        self._tools     = tool_engine
+        self._consensus = consensus_engine
+
+        active = self._active_features()
+        logger.info("OrchestratorV11 ready", features=active, count=len(active))
+
+    async def chat(self, req: ChatRequest) -> ChatResponse:
+        t0=time.perf_counter(); sid=req.session_id or str(uuid.uuid4())[:8]
+        rid=str(uuid.uuid4())[:8]
+
+        # [F8] AI Security
+        if self._ai_security:
+            a=await self._ai_security.assess(req.prompt, sid)
+            if a.blocked: raise SecurityViolationError("AI security blocked",
+                detail={"threat_type":a.threat_type,"confidence":a.confidence})
+        elif self._security and self._security.cfg.enabled:
+            v=self._security.validate(req.prompt)
+            if v: raise SecurityViolationError("Input blocked",detail=v)
+
+        # [F6] Correction check
+        if self._improve: await self._improve.check_correction(req.prompt, sid)
+
+        # [F11] Personality emotion
+        emotion="neutral"
+        if self._personality:
+            from backend.memory.advanced_memory import detect_emotion
+            emotion=detect_emotion(req.prompt)
+            self._personality.update_session(sid, req.prompt, emotion)
+
+        task_type=req.force_task or self._router.route(req.prompt)
+
+        # [F3] Memory
+        mem_ctx={}
+        if self._uni_memory:
+            try: mem_ctx=await self._uni_memory.retrieve(sid, req.prompt)
+            except Exception as e: logger.warning("UniMemory failed",error=str(e))
+        context=mem_ctx.get("recent_turns") or \
+                await self._memory.get_context(session_id=sid,prompt=req.prompt)
+
+        # [F5] RAG++
+        rag_ctx=""
+        if self._rag and task_type in (TaskType.SEARCH,TaskType.CHAT,TaskType.DOCUMENT):
+            try: rag_ctx=await self._rag.retrieve_context(req.prompt)
+            except Exception as e: logger.warning("RAG failed",error=str(e))
+
+        # [V11-S2] Tool Calling — enrich prompt with live tool outputs
+        tool_prompt = req.prompt
+        tools_used  = []
+        if self._tools:
+            try:
+                tr = await self._tools.process(req.prompt, autonomy_level=2)
+                if tr.tools_used:
+                    tool_prompt = tr.enriched_prompt
+                    tools_used  = tr.tools_used
+                    logger.info("Tools used", tools=tools_used)
+            except Exception as e: logger.warning("Tool calling failed",error=str(e))
+
+        # Personality addon
+        pa=""
+        if self._personality: pa=self._personality.get_system_prompt_addon(sid)
+
+        prompt=self._build_prompt(tool_prompt, task_type, context, rag_ctx,
+                                   mem_ctx.get("enriched_prompt",""), pa)
+
+        # Model selection
+        model_name=req.force_model
+        if not model_name and self._registry:
+            model_name=self._registry.best_for_task(task_type.value)
+        if not model_name: model_name=self._router.select_model(task_type)
+
+        # [V11-S3] Consensus OR direct inference
+        consensus_result = None
+        if self._consensus and len(self._consensus._models) > 1:
+            try:
+                consensus_result = await self._consensus.run(
+                    prompt, req.max_tokens, req.temperature)
+                answer = consensus_result.final_answer
+                tokens = sum(r.tokens for r in consensus_result.all_responses)
+                model_name = consensus_result.winner_model
+            except Exception as e:
+                logger.warning("Consensus failed, falling back", error=str(e))
+                consensus_result = None
+
+        if consensus_result is None:
+            # Direct inference (or task queue)
+            try:
+                if self._task_queue:
+                    tid=await self._task_queue.submit(self._models.infer,model_name,prompt,
+                                                       req.max_tokens,req.temperature,
+                                                       name=f"infer_{task_type.value}",priority=3)
+                    answer,tokens=await self._task_queue.wait(tid,timeout=120)
+                else:
+                    answer,tokens=await self._models.infer(model_name,prompt,req.max_tokens,req.temperature)
+            except Exception as e:
+                logger.exception("Inference failed",model=model_name)
+                raise ModelInferenceError(str(e)) from e
+
+        # [F1] Self-reflection
+        confidence=1.0; reflection_notes=""
+        if self._reflection:
+            try:
+                r=await self._reflection.reflect(req.prompt,answer,task_type.value,model_name)
+                answer=r.final_answer; confidence=r.confidence; reflection_notes=r.reflection_notes
+                if self._improve and confidence<0.5:
+                    await self._improve.record_low_confidence(confidence,req.prompt,answer,sid)
+            except Exception as e: logger.warning("Reflection failed",error=str(e))
+
+        # V9 output filter
+        if self._security and self._security.cfg.output_filter:
+            answer=self._security.filter_output(answer)
+
+        # [F11] Personalize
+        if self._personality: answer=self._personality.personalize_response(answer,sid)
+
+        # [V11-S1] RLHF reward score (non-blocking, log only)
+        reward_score=0.0
+        if self._rlhf:
+            try: reward_score=await self._rlhf.score_response(req.prompt,answer)
+            except Exception: pass
+
+        # Persist
+        await self._memory.save_turn(sid,req.prompt,answer)
+        if self._uni_memory and hasattr(self._uni_memory,"_episodic"):
+            try: await self._uni_memory._episodic.store(sid,req.prompt,answer,importance=confidence)
+            except Exception: pass
+
+        # Metrics
+        ms=(time.perf_counter()-t0)*1000
+        self._monitoring.record_request(task_type=task_type.value,model=model_name,
+                                         latency_ms=ms,tokens=tokens)
+
+        return ChatResponse(answer=answer,session_id=sid,task_type=task_type.value,
+            model_used=model_name,tokens_used=tokens,latency_ms=round(ms,2),
+            response_id=rid)
+
+    async def chat_stream(self, req: ChatRequest) -> AsyncGenerator[str,None]:
+        sid=req.session_id or str(uuid.uuid4())[:8]
+        if self._security and self._security.cfg.enabled:
+            v=self._security.validate(req.prompt)
+            if v: raise SecurityViolationError("Input blocked",detail=v)
+        task_type=req.force_task or self._router.route(req.prompt)
+        context=await self._memory.get_context(sid,req.prompt)
+        rag_ctx=""
+        if self._rag:
+            try: rag_ctx=await self._rag.retrieve_context(req.prompt)
+            except Exception: pass
+        # Tool calling for stream too
+        tool_prompt=req.prompt
+        if self._tools:
+            try:
+                tr=await self._tools.process(req.prompt,autonomy_level=2)
+                if tr.tools_used: tool_prompt=tr.enriched_prompt
+            except Exception: pass
+        prompt=self._build_prompt(tool_prompt,task_type,context,rag_ctx)
+        model_name=req.force_model or self._router.select_model(task_type)
+        full=[]
+        async for tok in self._models.stream(model_name,prompt,req.max_tokens,req.temperature):
+            full.append(tok); yield tok
+        full_text="".join(full)
+        if self._personality: full_text=self._personality.personalize_response(full_text,sid)
+        await self._memory.save_turn(sid,req.prompt,full_text)
+
+    async def code(self, req: CodeRequest) -> CodeResponse:
+        model=self._router.select_model(TaskType.CODE)
+        action=req.action.value if hasattr(req.action,"value") else str(req.action)
+        am={"generate":f"Generate {req.language} code for: {req.description}",
+            "debug":f"Debug:\n```{req.language}\n{req.code}\n```",
+            "explain":f"Explain:\n```{req.language}\n{req.code}\n```",
+            "review":f"Review:\n```{req.language}\n{req.code}\n```",
+            "optimize":f"Optimize:\n```{req.language}\n{req.code}\n```",
+            "test":f"Write tests for:\n```{req.language}\n{req.code}\n```"}
+        prompt=f"Expert {req.language} developer.\n{am.get(action,req.code)}\n\nResponse:"
+        answer,_=await self._models.infer(model,prompt,max_tokens=2048,temperature=0.2)
+        return CodeResponse(result=answer,action=action,language=req.language)
+
+    async def security_scan(self,code:str,language:str)->List[str]:
+        return await self._security.scan_code(code=code,language=language)
+
+    async def run_parallel_agents(self,goal,mode="parallel",agents=None,session_id="",model_name=""):
+        if not self._parallel:
+            from backend.models.schemas import AgentRunRequest
+            return await self._agents.run(AgentRunRequest(goal=goal,session_id=session_id or None))
+        from backend.agents.parallel_executor import ExecutionMode
+        mode_enum=ExecutionMode.PARALLEL if mode=="parallel" else ExecutionMode.SINGLE
+        return await self._parallel.execute(goal=goal,mode=mode_enum,
+            selected_agents=agents,model_name=model_name or self._router.select_model(TaskType.AGENT))
+
+    async def process_file(self,filename,file_bytes,question,session_id)->FileProcessResponse:
+        text=await self._extract_file_text(filename,file_bytes)
+        prompt=f"Document:\n{text[:3000]}\n\nQuestion: {question}\nAnswer:"
+        model=self._router.select_model(TaskType.DOCUMENT)
+        answer,_=await self._models.infer(model,prompt,max_tokens=512)
+        return FileProcessResponse(filename=filename,file_type=filename.rsplit(".",1)[-1].lower(),
+                                   summary=answer,content=text[:2000])
+
+    async def file_qa(self,file_id,question):
+        ctx=await self._memory.search_by_tag(tag=f"file:{file_id}",top_k=5)
+        ct="\n".join(e.content for e in ctx)
+        answer,_=await self._models.infer(
+            self._router.select_model(TaskType.DOCUMENT),
+            f"Context:\n{ct}\n\nQuestion: {question}\nAnswer:")
+        return answer
+
+    def _build_prompt(self,prompt,task_type,context,rag_ctx="",enriched="",pa=""):
+        sys=self._personality_cfg.system_prompt+(f" {pa}" if pa else "")
+        hint={TaskType.CODE:"\n[Provide clean code]",TaskType.MATH:"\n[Show reasoning]",
+              TaskType.DOCUMENT:"\n[Cite sources]",TaskType.SEARCH:"\n[Use retrieved facts]"}.get(task_type,"")
+        hist="".join(f"User: {t.get('user','')}\nAssistant: {t.get('assistant','')}\n" for t in context[-6:])
+        parts=[sys,hint]
+        if enriched: parts.append(enriched)
+        if rag_ctx:  parts.append(f"\n{rag_ctx}")
+        parts.append(f"\n{hist}User: {prompt}\nAssistant:")
+        return "\n".join(p for p in parts if p)
+
+    async def _extract_file_text(self,filename,data):
+        ext=filename.rsplit(".",1)[-1].lower()
+        try:
+            if ext=="pdf":
+                import pdfplumber,io
+                with pdfplumber.open(io.BytesIO(data)) as pdf:
+                    return "\n".join(p.extract_text() or "" for p in pdf.pages[:10])
+            if ext=="docx":
+                import docx,io
+                return "\n".join(p.text for p in docx.Document(io.BytesIO(data)).paragraphs)
+            if ext in("txt","py","md"):
+                return data.decode("utf-8",errors="replace")
+        except Exception as e:
+            logger.warning("File extract failed",ext=ext,error=str(e))
+        return f"[Cannot extract from {filename}]"
+
+    def _active_features(self):
+        return [k for k,v in {
+            "F1:Reflection":self._reflection,"F2:Learning":self._learning,
+            "F3:AdvMemory":self._uni_memory,"F4:Parallel":self._parallel,
+            "F5:RAG++":self._rag,"F6:SelfImprove":self._improve,
+            "F7:Registry":self._registry,"F8:AISecurity":self._ai_security,
+            "F9:Multimodal":self._fusion,"F10:TaskQueue":self._task_queue,
+            "F11:Personality":self._personality,"V11-S1:RLHF":self._rlhf,
+            "V11-S2:Tools":self._tools,"V11-S3:Consensus":self._consensus,
+        }.items() if v]
+
+Orchestrator=OrchestratorV11
