@@ -93,6 +93,33 @@ interface SettingsStore {
   setModel:         (m: string) => void;
 }
 
+const SETTINGS_STORAGE_KEY = "superai-v11-settings";
+const LEGACY_SETTINGS_STORAGE_KEY = "superai-v9-settings";
+
+function readLegacySettings(): Partial<SettingsStore> {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  try {
+    const raw = window.localStorage.getItem(LEGACY_SETTINGS_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    let state: Partial<SettingsStore> = {};
+    if (parsed && typeof parsed === "object" && "state" in parsed) {
+      state = ((parsed as { state?: Partial<SettingsStore> }).state ?? {}) as Partial<SettingsStore>;
+    } else if (parsed && typeof parsed === "object") {
+      state = parsed as Partial<SettingsStore>;
+    }
+    window.localStorage.removeItem(LEGACY_SETTINGS_STORAGE_KEY);
+    return state;
+  } catch {
+    return {};
+  }
+}
+
 export const useSettingsStore = create<SettingsStore>()(
   persist(
     (set) => ({
@@ -103,6 +130,7 @@ export const useSettingsStore = create<SettingsStore>()(
       temperature:      0.7,
       maxTokens:        512,
       model:            "",
+      ...readLegacySettings(),
       setTheme:         (t) => set({ theme: t }),
       setStreaming:      (v) => set({ streamingEnabled: v }),
       setVoice:         (v) => set({ voiceEnabled: v }),
@@ -111,7 +139,7 @@ export const useSettingsStore = create<SettingsStore>()(
       setMaxTokens:     (v) => set({ maxTokens: v }),
       setModel:         (m) => set({ model: m }),
     }),
-    { name: "superai-v9-settings" }
+    { name: SETTINGS_STORAGE_KEY }
   )
 );
 

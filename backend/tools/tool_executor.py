@@ -8,17 +8,57 @@ Security: code_execute uses subprocess with 10s timeout + blocked dangerous impo
 from __future__ import annotations
 import asyncio, ast, math, re, subprocess, sys, time, urllib.parse, urllib.request
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from loguru import logger
 from backend.tools.tool_registry import ToolDef, ToolRegistry, ToolResult
 
 MAX_OUT = 2000  # chars
+BLOCKED_MODULES = {"os", "sys", "subprocess", "socket", "requests", "importlib", "pathlib"}
+BLOCKED_CALLS = {"__import__", "open", "exec", "eval", "compile", "input"}
+
+
+def _call_name(node: ast.AST) -> Optional[str]:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _call_name(node.value)
+        return f"{base}.{node.attr}" if base else node.attr
+    return None
+
+
+def _validate_python_code(code: str) -> Optional[str]:
+    try:
+        tree = ast.parse(code, mode="exec")
+    except SyntaxError as exc:
+        return f"Syntax error: {exc}"
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".")[0]
+                if root in BLOCKED_MODULES:
+                    return f"Blocked import: {alias.name}"
+        elif isinstance(node, ast.ImportFrom):
+            root = (node.module or "").split(".")[0]
+            if root in BLOCKED_MODULES:
+                return f"Blocked import: {node.module}"
+        elif isinstance(node, ast.Call):
+            name = _call_name(node.func) or ""
+            root = name.split(".")[0]
+            if name in BLOCKED_CALLS or root in BLOCKED_CALLS:
+                return f"Blocked call: {name}"
+            if name.endswith("import_module") and root == "importlib":
+                return "Blocked call: importlib.import_module"
+    return None
 
 
 class ToolExecutor:
-    MAX_OUT = 2000
     def __init__(self, registry: ToolRegistry) -> None:
         self._reg = registry
+
+    @property
+    def MAX_OUT(self) -> int:  # pragma: no cover - compatibility shim
+        return MAX_OUT
 
     async def execute(self, name: str, args: Dict[str, Any]) -> ToolResult:
         tool = self._reg.get(name)
@@ -79,10 +119,9 @@ async def _calculator(expression: str) -> str:
 async def _code_execute(code: str, language: str = "python") -> str:
     if language.lower() != "python":
         return f"Only Python supported. Got: {language}"
-    blocked = ["import os","import sys","import subprocess","import socket",
-               "import requests","__import__","open(","exec(","eval("]
-    for b in blocked:
-        if b in code: return f"Blocked: '{b}' not allowed."
+    blocked = _validate_python_code(code)
+    if blocked:
+        return blocked
     def _run():
         r = subprocess.run([sys.executable,"-c",code],
             capture_output=True, text=True, timeout=10)

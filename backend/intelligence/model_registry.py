@@ -151,9 +151,12 @@ class ModelRegistry:
         if not candidates:
             return None
         scored = [
-            (e, e.benchmark_scores.get("overall_score", 0.5))
+            (e, e.benchmark_scores["overall_score"])
             for e in candidates
+            if "overall_score" in e.benchmark_scores
         ]
+        if not scored:
+            return None
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[0][0].model_id if scored else None
 

@@ -230,7 +230,7 @@ def patch_config(device: str, model: str, port: int, safe_mode: bool, features: 
         ("memory", "db_path"): str(DATA / "superai_v11.db"),
         ("memory", "vector_db_path"): str(DATA / "vector_db/"),
         ("advanced_memory", "episodic_db_path"): str(DATA / "episodic.db"),
-        ("advanced_memory", "semantic_graph_path"): str(DATA / "knowledge_graph.pkl"),
+        ("advanced_memory", "semantic_graph_path"): str(DATA / "knowledge_graph.json"),
         ("feedback", "store_path"): str(DATA / "feedback.db"),
         ("files", "upload_dir"): str(DATA / "uploads/"),
         ("logging", "file"): str(DATA / "logs/superai_v11.log"),

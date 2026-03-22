@@ -63,20 +63,21 @@ class DatasetBuilder:
                     rated = await cur.fetchall()
 
                     for row in rated:
-                        # Find corresponding conversation turn
                         c = await conv_db.execute(
                             "SELECT user_msg, assistant_msg FROM conversation_turns "
-                            "ORDER BY timestamp DESC LIMIT 200"
+                            "WHERE response_id = ? LIMIT 1",
+                            (row["response_id"],),
                         )
-                        turns = await c.fetchall()
-                        for turn in turns:
-                            examples.append({
-                                "instruction": turn["user_msg"],
-                                "input": "",
-                                "output":      turn["assistant_msg"],
-                                "score":       row["score"],
-                                "timestamp":   datetime.utcnow().isoformat(),
-                            })
+                        turn = await c.fetchone()
+                        if not turn:
+                            continue
+                        examples.append({
+                            "instruction": turn["user_msg"],
+                            "input": "",
+                            "output":      turn["assistant_msg"],
+                            "score":       row["score"],
+                            "timestamp":   datetime.utcnow().isoformat(),
+                        })
 
         except Exception as e:
             logger.warning("Dataset build failed", error=str(e))

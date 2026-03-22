@@ -58,6 +58,7 @@ class MemoryServiceV10:
         self._db = await aiosqlite.connect(str(db_path))
         self._db.row_factory = aiosqlite.Row
         await self._create_tables()
+        await self._ensure_conversation_schema()
         await self._init_vector_store()
 
         # Start background cleanup
@@ -73,16 +74,20 @@ class MemoryServiceV10:
     # ── Conversation history ──────────────────────────────────────
 
     async def save_turn(
-        self, session_id: str, user_msg: str, assistant_msg: str,
+        self,
+        session_id: str,
+        user_msg: str,
+        assistant_msg: str,
         priority: float = 1.0,
+        response_id: Optional[str] = None,
     ) -> None:
         await self._db.execute(
             """
             INSERT INTO conversation_turns
-              (session_id, user_msg, assistant_msg, timestamp, priority)
-            VALUES (?, ?, ?, ?, ?)
+              (session_id, user_msg, assistant_msg, timestamp, priority, response_id)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (session_id, user_msg, assistant_msg, time.time(), priority),
+            (session_id, user_msg, assistant_msg, time.time(), priority, response_id),
         )
         await self._db.commit()
 
@@ -237,10 +242,13 @@ class MemoryServiceV10:
                 user_msg      TEXT    NOT NULL,
                 assistant_msg TEXT    NOT NULL,
                 timestamp     REAL    NOT NULL,
-                priority      REAL    DEFAULT 1.0
+                priority      REAL    DEFAULT 1.0,
+                response_id   TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_turns_session
                 ON conversation_turns(session_id, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_turns_response
+                ON conversation_turns(response_id);
 
             CREATE TABLE IF NOT EXISTS memories (
                 id         TEXT PRIMARY KEY,
@@ -291,11 +299,23 @@ class MemoryServiceV10:
         result = await self.search(MemorySearchRequest(
             query=query, session_id=session_id, top_k=top_k
         ))
-        return [
-            {"user": e.content, "assistant": ""}
-            for e in result.entries
-            if e.source == "conversation"
-        ]
+        recalled: List[Dict[str, str]] = []
+        for entry in result.entries:
+            if entry.source == "conversation":
+                recalled.append({"user": entry.content, "assistant": ""})
+            else:
+                recalled.append({"user": f"Relevant memory: {entry.content}", "assistant": ""})
+        return recalled
+
+    async def _ensure_conversation_schema(self) -> None:
+        cur = await self._db.execute("PRAGMA table_info(conversation_turns)")
+        columns = {row[1] for row in await cur.fetchall()}
+        if "response_id" not in columns:
+            await self._db.execute("ALTER TABLE conversation_turns ADD COLUMN response_id TEXT")
+            await self._db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_turns_response ON conversation_turns(response_id)"
+            )
+            await self._db.commit()
 
     async def _get_memory_row(self, entry_id: str) -> Optional[Any]:
         if entry_id.startswith("turn_"):

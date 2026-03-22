@@ -171,7 +171,7 @@ Used by specific features when installed:
 ### 1. Create Python environment
 
 ```powershell
-cd B:\SuperAI\superai_v11_complete\superai_v11_final
+cd superai_v11_final
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip

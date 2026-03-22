@@ -169,6 +169,9 @@ class ResponsePersonalizer:
                 sentences = re.split(r'(?<=[.!?])\s+', modified)
                 if len(sentences) > 2:
                     modified = " ".join(sentences[:3]) + "..."
+                words = modified.split()
+                if len(words) > 80:
+                    modified = " ".join(words[:80]) + "..."
 
             elif user_profile.preferred_depth == "detailed" and len(modified.split()) < 30:
                 # Add elaboration hint

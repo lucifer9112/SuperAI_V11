@@ -1,6 +1,6 @@
 """SuperAI V11 — backend/core/security.py — Input/output security."""
 from __future__ import annotations
-import re, subprocess, tempfile
+import re, subprocess, tempfile, unicodedata
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from loguru import logger
@@ -18,7 +18,15 @@ _INJ = [
 _HARM = [
     r"how\s+to\s+make\s+(?:a\s+)?bomb",
     r"synthesis\s+of\s+(?:meth|cocaine|heroin)",
+    r"(?:make|build|create)\s+(?:an?\s+)?(?:explosive|bomb|weapon)",
+    r"(?:make|build|create)\s+explosives?",
+    r"how\s+to\s+(?:hack|break\s+into|bypass)\b",
+    r"(?:weapon|explosive|drug)\s+synthesis",
 ]
+
+
+def _normalize_text(text: str) -> str:
+    return unicodedata.normalize("NFKC", text).lower()
 
 
 class SecurityEngine:
@@ -40,8 +48,9 @@ class SecurityEngine:
     def filter_output(self, text: str) -> str:
         if not self.cfg.output_filter:
             return text
+        normalized = _normalize_text(text)
         for pat in self._harm_re:
-            if pat.search(text):
+            if pat.search(normalized):
                 return "[Response filtered by safety system]"
         return text
 

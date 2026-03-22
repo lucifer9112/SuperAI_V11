@@ -62,14 +62,15 @@ class AsyncTaskQueue:
     Limits concurrency to avoid OOM on Colab.
     """
 
-    def __init__(self, max_workers: int = 4) -> None:
+    def __init__(self, max_workers: int = 4, retention_s: int = 3600) -> None:
         self._queue:   asyncio.PriorityQueue = asyncio.PriorityQueue()
         self._tasks:   Dict[str, Task]       = {}
         self._sem      = asyncio.Semaphore(max_workers)
         self._workers: List[asyncio.Task]    = []
         self._running  = False
         self._max_workers = max_workers
-        logger.info("AsyncTaskQueue ready", max_workers=max_workers)
+        self._retention_s = retention_s
+        logger.info("AsyncTaskQueue ready", max_workers=max_workers, retention_s=retention_s)
 
     async def start(self) -> None:
         self._running = True
@@ -91,6 +92,7 @@ class AsyncTaskQueue:
         **kwargs,
     ) -> str:
         """Submit a coroutine for execution. Returns task_id."""
+        self._purge_completed()
         task_id = str(uuid.uuid4())[:10]
         task    = Task(task_id=task_id, name=name or coro_fn.__name__, priority=priority)
         self._tasks[task_id] = task
@@ -104,6 +106,7 @@ class AsyncTaskQueue:
         """Wait for task completion. Returns result or raises on failure."""
         deadline = time.time() + timeout
         while time.time() < deadline:
+            self._purge_completed()
             task = self._tasks.get(task_id)
             if task and task.status in (TaskStatus.DONE, TaskStatus.FAILED):
                 if task.status == TaskStatus.FAILED:
@@ -113,12 +116,14 @@ class AsyncTaskQueue:
         raise asyncio.TimeoutError(f"Task {task_id} timed out after {timeout}s")
 
     def status(self, task_id: str) -> Optional[Task]:
+        self._purge_completed()
         return self._tasks.get(task_id)
 
     def queue_depth(self) -> int:
         return self._queue.qsize()
 
     def stats(self) -> Dict:
+        self._purge_completed()
         done   = sum(1 for t in self._tasks.values() if t.status == TaskStatus.DONE)
         failed = sum(1 for t in self._tasks.values() if t.status == TaskStatus.FAILED)
         run    = sum(1 for t in self._tasks.values() if t.status == TaskStatus.RUNNING)
@@ -155,12 +160,25 @@ class AsyncTaskQueue:
                         logger.error("Task failed", task_id=task_id, error=str(e))
                     finally:
                         task.ended_at = time.time()
+                        self._purge_completed()
 
                 self._queue.task_done()
             except asyncio.TimeoutError:
                 pass
             except asyncio.CancelledError:
                 break
+
+    def _purge_completed(self) -> None:
+        cutoff = time.time() - self._retention_s
+        removable = [
+            task_id
+            for task_id, task in self._tasks.items()
+            if task.status in (TaskStatus.DONE, TaskStatus.FAILED, TaskStatus.CANCELLED)
+            and task.ended_at
+            and task.ended_at < cutoff
+        ]
+        for task_id in removable:
+            del self._tasks[task_id]
 
 
 # ── GPU-aware load balancer ───────────────────────────────────────
@@ -193,4 +211,5 @@ def create_task_queue(cfg) -> AsyncTaskQueue:
     Future: check cfg.task_queue for "celery" or "ray".
     """
     max_workers = getattr(cfg, "max_workers", 4)
-    return AsyncTaskQueue(max_workers=max_workers)
+    retention_s = getattr(cfg, "task_retention_s", 3600)
+    return AsyncTaskQueue(max_workers=max_workers, retention_s=retention_s)

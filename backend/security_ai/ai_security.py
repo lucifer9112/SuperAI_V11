@@ -144,6 +144,7 @@ class AnomalyDetector:
     def __init__(self) -> None:
         self._baseline_length_mean = 200.0
         self._baseline_length_std  = 150.0
+        self._recent_lengths: deque[int] = deque(maxlen=200)
 
     def check(self, text: str) -> Tuple[bool, float, str]:
         """Returns: (is_anomaly, score, reason)"""
@@ -174,7 +175,17 @@ class AnomalyDetector:
             score += 0.4
             reasons.append("keyword_repetition")
 
+        self._update_baseline(features["length"])
         return score > 0.5, score, ", ".join(reasons) if reasons else ""
+
+    def _update_baseline(self, length: int) -> None:
+        self._recent_lengths.append(length)
+        if len(self._recent_lengths) < 20:
+            return
+        mean = sum(self._recent_lengths) / len(self._recent_lengths)
+        variance = sum((item - mean) ** 2 for item in self._recent_lengths) / len(self._recent_lengths)
+        self._baseline_length_mean = mean
+        self._baseline_length_std = max(math.sqrt(variance), 25.0)
 
     @staticmethod
     def _extract_features(text: str) -> Dict:

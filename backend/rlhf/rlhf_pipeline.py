@@ -63,8 +63,17 @@ class FeedbackToRLHFConverter:
                     hi_rows = await hi_cur.fetchall()
                     lo_rows = await lo_cur.fetchall()
 
-                    hi_turns = await self._fetch_turns(cv_db, len(hi_rows))
-                    lo_turns = await self._fetch_turns(cv_db, len(lo_rows), reverse=True)
+                    hi_turns = await self._fetch_turns_by_response_ids(
+                        cv_db, [row["response_id"] for row in hi_rows]
+                    )
+                    lo_turns = await self._fetch_turns_by_response_ids(
+                        cv_db, [row["response_id"] for row in lo_rows]
+                    )
+
+                    if not hi_turns:
+                        hi_turns = await self._fetch_recent_turns(cv_db, len(hi_rows))
+                    if not lo_turns:
+                        lo_turns = await self._fetch_recent_turns(cv_db, len(lo_rows), reverse=True)
 
                     for i in range(min(len(hi_turns), len(lo_turns))):
                         h, l = hi_turns[i], lo_turns[i]
@@ -85,7 +94,7 @@ class FeedbackToRLHFConverter:
         logger.info("RLHF pairs ready", count=len(pairs))
         return pairs
 
-    async def _fetch_turns(self, conn, limit: int, reverse: bool = False) -> List[Dict]:
+    async def _fetch_recent_turns(self, conn, limit: int, reverse: bool = False) -> List[Dict]:
         order = "DESC" if not reverse else "ASC"
         cur = await conn.execute(
             f"SELECT user_msg, assistant_msg FROM conversation_turns "
@@ -93,6 +102,25 @@ class FeedbackToRLHFConverter:
         rows = await cur.fetchall()
         return [{"u": r["user_msg"], "a": r["assistant_msg"]}
                 for r in rows if r["user_msg"] and r["assistant_msg"]]
+
+    async def _fetch_turns_by_response_ids(self, conn, response_ids: List[str]) -> List[Dict]:
+        ordered_ids = [rid for rid in response_ids if rid]
+        if not ordered_ids:
+            return []
+
+        placeholders = ",".join("?" for _ in ordered_ids)
+        cur = await conn.execute(
+            f"SELECT response_id, user_msg, assistant_msg FROM conversation_turns "
+            f"WHERE response_id IN ({placeholders}) AND assistant_msg != ''",
+            ordered_ids,
+        )
+        rows = await cur.fetchall()
+        by_id = {
+            r["response_id"]: {"u": r["user_msg"], "a": r["assistant_msg"]}
+            for r in rows
+            if r["response_id"] and r["user_msg"] and r["assistant_msg"]
+        }
+        return [by_id[rid] for rid in ordered_ids if rid in by_id]
 
 
 class DPOTrainer:
@@ -237,7 +265,8 @@ class RLHFPipeline:
 
     async def init(self) -> None:
         from backend.rlhf.reward_model import RewardModel
-        self._reward_model = RewardModel()
+        reward_model_path = getattr(self.cfg, "reward_model_path", None)
+        self._reward_model = RewardModel(model_path=reward_model_path)
         await self._reward_model.init()
         await self._init_db()
         # Start background scheduler

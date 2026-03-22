@@ -62,8 +62,8 @@ async def ws_chat(ws: WebSocket) -> None:
 
                 orch = container.orchestrator
                 req.session_id = req.session_id or str(uuid.uuid4())[:8]
-                task_type = req.force_task or orch._router.route(req.prompt)
-                model_name = req.force_model or orch._router.select_model(task_type)
+                task_type = req.force_task or orch.route_prompt(req.prompt)
+                model_name = orch.select_model_for_task(task_type, req.force_model)
                 started = time.perf_counter()
                 chunks = []
 
@@ -72,12 +72,13 @@ async def ws_chat(ws: WebSocket) -> None:
                     await _mgr.send(ws, {"type": "token", "data": token})
 
                 answer = "".join(chunks)
+                tokens_used = await orch.count_text_tokens(model_name, answer)
                 final = ChatResponse(
                     answer=answer,
                     session_id=req.session_id,
                     task_type=task_type.value if hasattr(task_type, "value") else str(task_type),
                     model_used=model_name,
-                    tokens_used=max(1, len(answer.split())) if answer else 0,
+                    tokens_used=tokens_used,
                     latency_ms=round((time.perf_counter() - started) * 1000, 2),
                 )
                 await _mgr.send(

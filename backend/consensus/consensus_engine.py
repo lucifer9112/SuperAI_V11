@@ -227,6 +227,7 @@ class ConsensusEngine:
             self._conflict_log.append({"prompt": prompt[:80], "agreement": agreement})
             final, winner = await self._meta.judge(
                 prompt, all_responses, self._loader, self._judge_model)
+            agreement = 1.0 if winner != "none" else agreement
             strategy_used = "meta_judge"
         else:
             final, winner, agreement = self._voter.vote(all_responses, active_strategy, prompt)

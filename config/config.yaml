@@ -40,7 +40,7 @@ advanced_memory:
   semantic_graph_enabled: true
   emotional_tagging: true
   episodic_db_path: "data/episodic.db"
-  semantic_graph_path: "data/knowledge_graph.pkl"
+  semantic_graph_path: "data/knowledge_graph.json"
   emotion_labels: ["positive","negative","curious","frustrated","neutral","urgent"]
   max_graph_nodes: 10000
 parallel_agents:
@@ -86,6 +86,7 @@ distributed:
   enabled: false
   task_queue: "async"
   max_workers: 4
+  task_retention_s: 3600
 personality:
   name: "SuperAI"
   version: "11.0"
@@ -165,6 +166,7 @@ rlhf:
   rlhf_log_db: "data/rlhf_logs.db"
   rlhf_scheduler_hours: 24
   rlhf_min_pairs: 10
+  reward_model_path: "data/reward_model/reward_head.pt"
 
 # ── V11 STEP 2: Tool Calling Engine ──────────────────────────────
 tools:

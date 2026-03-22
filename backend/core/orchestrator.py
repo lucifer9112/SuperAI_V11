@@ -62,6 +62,25 @@ class OrchestratorV11:
         active = self._active_features()
         logger.info("OrchestratorV11 ready", features=active, count=len(active))
 
+    def route_prompt(self, prompt: str):
+        return self._router.route(prompt)
+
+    def select_model_for_task(self, task_type, forced_model: Optional[str] = None) -> str:
+        if forced_model:
+            return forced_model
+        if self._registry and hasattr(task_type, "value"):
+            model_name = self._registry.best_for_task(task_type.value)
+            if model_name:
+                return model_name
+        return self._router.select_model(task_type)
+
+    async def count_text_tokens(self, model_name: str, text: str) -> int:
+        if not text:
+            return 0
+        if hasattr(self._models, "count_tokens"):
+            return await self._models.count_tokens(model_name, text)
+        return max(1, len(text.split()))
+
     async def chat(self, req: ChatRequest) -> ChatResponse:
         t0=time.perf_counter(); sid=req.session_id or str(uuid.uuid4())[:8]
         rid=str(uuid.uuid4())[:8]
@@ -85,7 +104,7 @@ class OrchestratorV11:
             emotion=detect_emotion(req.prompt)
             self._personality.update_session(sid, req.prompt, emotion)
 
-        task_type=req.force_task or self._router.route(req.prompt)
+        task_type=req.force_task or self.route_prompt(req.prompt)
 
         # [F3] Memory
         mem_ctx={}
@@ -121,10 +140,7 @@ class OrchestratorV11:
                                    mem_ctx.get("enriched_prompt",""), pa)
 
         # Model selection
-        model_name=req.force_model
-        if not model_name and self._registry:
-            model_name=self._registry.best_for_task(task_type.value)
-        if not model_name: model_name=self._router.select_model(task_type)
+        model_name=self.select_model_for_task(task_type, req.force_model)
 
         # [V11-S3] Consensus OR direct inference
         consensus_result = None
@@ -177,7 +193,7 @@ class OrchestratorV11:
             except Exception: pass
 
         # Persist
-        await self._memory.save_turn(sid,req.prompt,answer)
+        await self._memory.save_turn(sid,req.prompt,answer,response_id=rid)
         if self._uni_memory and hasattr(self._uni_memory,"_episodic"):
             try: await self._uni_memory._episodic.store(sid,req.prompt,answer,importance=confidence)
             except Exception: pass
@@ -193,30 +209,93 @@ class OrchestratorV11:
 
     async def chat_stream(self, req: ChatRequest) -> AsyncGenerator[str,None]:
         sid=req.session_id or str(uuid.uuid4())[:8]
-        if self._security and self._security.cfg.enabled:
+        rid=str(uuid.uuid4())[:8]
+        t0=time.perf_counter()
+
+        if self._ai_security:
+            a=await self._ai_security.assess(req.prompt, sid)
+            if a.blocked:
+                raise SecurityViolationError(
+                    "AI security blocked",
+                    detail={"threat_type": a.threat_type, "confidence": a.confidence},
+                )
+        elif self._security and self._security.cfg.enabled:
             v=self._security.validate(req.prompt)
             if v: raise SecurityViolationError("Input blocked",detail=v)
-        task_type=req.force_task or self._router.route(req.prompt)
-        context=await self._memory.get_context(sid,req.prompt)
+
+        if self._improve:
+            await self._improve.check_correction(req.prompt, sid)
+
+        emotion="neutral"
+        if self._personality:
+            from backend.memory.advanced_memory import detect_emotion
+            emotion=detect_emotion(req.prompt)
+            self._personality.update_session(sid, req.prompt, emotion)
+
+        task_type=req.force_task or self.route_prompt(req.prompt)
+
+        mem_ctx={}
+        if self._uni_memory:
+            try:
+                mem_ctx=await self._uni_memory.retrieve(sid, req.prompt)
+            except Exception as e:
+                logger.warning("UniMemory failed", error=str(e))
+        context=mem_ctx.get("recent_turns") or await self._memory.get_context(sid,req.prompt)
         rag_ctx=""
-        if self._rag:
-            try: rag_ctx=await self._rag.retrieve_context(req.prompt)
-            except Exception: pass
-        # Tool calling for stream too
+        if self._rag and task_type in (TaskType.SEARCH,TaskType.CHAT,TaskType.DOCUMENT):
+            try:
+                rag_ctx=await self._rag.retrieve_context(req.prompt)
+            except Exception as e:
+                logger.warning("RAG failed", error=str(e))
+
         tool_prompt=req.prompt
         if self._tools:
             try:
                 tr=await self._tools.process(req.prompt,autonomy_level=2)
                 if tr.tools_used: tool_prompt=tr.enriched_prompt
-            except Exception: pass
-        prompt=self._build_prompt(tool_prompt,task_type,context,rag_ctx)
-        model_name=req.force_model or self._router.select_model(task_type)
+            except Exception as e:
+                logger.warning("Tool calling failed", error=str(e))
+
+        pa=""
+        if self._personality:
+            pa=self._personality.get_system_prompt_addon(sid)
+
+        prompt=self._build_prompt(
+            tool_prompt,
+            task_type,
+            context,
+            rag_ctx,
+            mem_ctx.get("enriched_prompt",""),
+            pa,
+        )
+        model_name=self.select_model_for_task(task_type, req.force_model)
         full=[]
         async for tok in self._models.stream(model_name,prompt,req.max_tokens,req.temperature):
             full.append(tok); yield tok
         full_text="".join(full)
-        if self._personality: full_text=self._personality.personalize_response(full_text,sid)
-        await self._memory.save_turn(sid,req.prompt,full_text)
+        if self._personality:
+            full_text=self._personality.personalize_response(full_text,sid)
+
+        if self._rlhf:
+            try:
+                await self._rlhf.score_response(req.prompt,full_text)
+            except Exception:
+                pass
+
+        await self._memory.save_turn(sid,req.prompt,full_text,response_id=rid)
+        if self._uni_memory and hasattr(self._uni_memory,"_episodic"):
+            try:
+                await self._uni_memory._episodic.store(sid,req.prompt,full_text,importance=1.0)
+            except Exception:
+                pass
+
+        tokens=await self.count_text_tokens(model_name, full_text)
+        self._monitoring.record_request(
+            task_type=task_type.value if hasattr(task_type, "value") else str(task_type),
+            model=model_name,
+            latency_ms=(time.perf_counter()-t0)*1000,
+            tokens=tokens,
+        )
 
     async def code(self, req: CodeRequest) -> CodeResponse:
         model=self._router.select_model(TaskType.CODE)
@@ -265,9 +344,13 @@ class OrchestratorV11:
               TaskType.DOCUMENT:"\n[Cite sources]",TaskType.SEARCH:"\n[Use retrieved facts]"}.get(task_type,"")
         hist="".join(f"User: {t.get('user','')}\nAssistant: {t.get('assistant','')}\n" for t in context[-6:])
         parts=[sys,hint]
-        if enriched: parts.append(enriched)
-        if rag_ctx:  parts.append(f"\n{rag_ctx}")
-        parts.append(f"\n{hist}User: {prompt}\nAssistant:")
+        if enriched:
+            parts.append(enriched)
+        if hist:
+            parts.append(hist)
+        if rag_ctx:
+            parts.append(rag_ctx)
+        parts.append(f"User: {prompt}\nAssistant:")
         return "\n".join(p for p in parts if p)
 
     async def _extract_file_text(self,filename,data):

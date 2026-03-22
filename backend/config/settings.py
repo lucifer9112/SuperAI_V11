@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import yaml
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_DIR   = Path(__file__).parent.parent.parent
@@ -131,7 +131,7 @@ class AdvancedMemorySettings(BaseSettings):
     semantic_graph_enabled:bool=Field(default_factory=lambda:_y("advanced_memory","semantic_graph_enabled",True))
     emotional_tagging:bool=Field(default_factory=lambda:_y("advanced_memory","emotional_tagging",True))
     episodic_db_path:str=Field(default_factory=lambda:_y("advanced_memory","episodic_db_path","data/episodic.db"))
-    semantic_graph_path:str=Field(default_factory=lambda:_y("advanced_memory","semantic_graph_path","data/knowledge_graph.pkl"))
+    semantic_graph_path:str=Field(default_factory=lambda:_y("advanced_memory","semantic_graph_path","data/knowledge_graph.json"))
     emotion_labels:List[str]=Field(default_factory=lambda:_y("advanced_memory","emotion_labels",["positive","negative","neutral"]))
     max_graph_nodes:int=Field(default_factory=lambda:_y("advanced_memory","max_graph_nodes",10000))
 
@@ -192,6 +192,7 @@ class DistributedSettings(BaseSettings):
     enabled:bool=Field(default_factory=lambda:_y("distributed","enabled",False))
     task_queue:str=Field(default_factory=lambda:_y("distributed","task_queue","async"))
     max_workers:int=Field(default_factory=lambda:_y("distributed","max_workers",4))
+    task_retention_s:int=Field(default_factory=lambda:_y("distributed","task_retention_s",3600))
     gpu_ids:List[int]=Field(default_factory=lambda:_y("distributed","gpu_ids",[0]))
     load_balance_strategy:str=Field(default_factory=lambda:_y("distributed","load_balance_strategy","round_robin"))
 
@@ -224,6 +225,14 @@ class AppSettings(BaseSettings):
     rlhf:RLHFSettings=Field(default_factory=lambda: RLHFSettings())
     tools:ToolSettings=Field(default_factory=lambda: ToolSettings())
     consensus:ConsensusSettings=Field(default_factory=lambda: ConsensusSettings())
+
+    @model_validator(mode="after")
+    def validate_runtime_security(self):
+        weak = {"change-me", "change-in-production", "changeme", "colab-v11-key", "colab-v10-secret"}
+        env = (self.server.environment or "development").lower()
+        if env not in {"development", "dev", "test"} and self.security.secret_key.strip().lower() in weak:
+            raise ValueError("SECRET_KEY must be set to a strong non-default value outside development/test")
+        return self
 
 
 # ── V11 Settings ──────────────────────────────────────────────────

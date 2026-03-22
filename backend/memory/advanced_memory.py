@@ -16,11 +16,10 @@ from __future__ import annotations
 import asyncio
 import json
 import math
-import pickle
 import re
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -182,7 +181,7 @@ class SemanticGraph:
     """
     Lightweight in-memory knowledge graph.
     Extracts entities and relations from conversations.
-    Persisted to disk as pickle.
+    Persisted to disk as JSON.
     """
 
     def __init__(self, graph_path: str, max_nodes: int = 10000) -> None:
@@ -235,18 +234,23 @@ class SemanticGraph:
     def save(self) -> None:
         self.graph_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            with open(self.graph_path, "wb") as f:
-                pickle.dump({"nodes": self._nodes, "edges": self._edges}, f)
+            data = {
+                "nodes": {key: asdict(node) for key, node in self._nodes.items()},
+                "edges": [asdict(edge) for edge in self._edges],
+            }
+            self.graph_path.write_text(json.dumps(data), encoding="utf-8")
         except Exception as e:
             logger.warning("Graph save failed", error=str(e))
 
     def _load(self) -> None:
         if self.graph_path.exists():
             try:
-                with open(self.graph_path, "rb") as f:
-                    data = pickle.load(f)
-                    self._nodes = data.get("nodes", {})
-                    self._edges = data.get("edges", [])
+                data = json.loads(self.graph_path.read_text(encoding="utf-8"))
+                self._nodes = {
+                    key: GraphNode(**value)
+                    for key, value in data.get("nodes", {}).items()
+                }
+                self._edges = [GraphEdge(**value) for value in data.get("edges", [])]
             except Exception:
                 pass
 

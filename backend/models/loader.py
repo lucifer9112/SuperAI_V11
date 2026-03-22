@@ -103,6 +103,20 @@ class ModelLoader:
             await asyncio.sleep(0)
         cached.touch()
 
+    async def count_tokens(self, model_name: str, text: str) -> int:
+        cached = await self._get_or_load(model_name)
+
+        def _run() -> int:
+            encoded = cached.tokenizer(text, return_tensors="pt", truncation=True, max_length=4096)
+            return int(encoded["input_ids"].shape[-1])
+
+        try:
+            count = await asyncio.to_thread(_run)
+            cached.touch()
+            return count
+        except Exception:
+            return max(1, len(text.split())) if text else 0
+
     def loaded_models(self) -> List[str]:
         return list(self._cache.keys())
 
