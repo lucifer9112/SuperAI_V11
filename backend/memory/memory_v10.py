@@ -1,5 +1,5 @@
 """
-SuperAI V11 — backend/memory/memory_v9.py
+SuperAI V11 — backend/memory/memory_v10.py
 
 Enhanced MemoryService with:
   - Priority scoring  (important memories ranked higher)
@@ -162,7 +162,7 @@ class MemoryServiceV10:
                 content=row["content"],
                 score=round(score, 4),
                 priority=float(row["priority"]),
-                timestamp=str(row["timestamp"]),
+                timestamp=float(row["timestamp"]),
                 source=row["source"],
                 decay=round(decay, 4),
             ))
@@ -219,7 +219,7 @@ class MemoryServiceV10:
             MemoryEntry(
                 id=r["id"], content=r["content"],
                 score=1.0, priority=r["priority"],
-                timestamp=str(r["timestamp"]), source=r["source"],
+                timestamp=float(r["timestamp"]), source=r["source"],
             )
             for r in rows
         ]

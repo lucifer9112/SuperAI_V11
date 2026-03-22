@@ -22,4 +22,5 @@ frontend/.next/
 frontend/tsconfig.tsbuildinfo
 *.tar
 *.zip
+tmp/
 .DS_Store

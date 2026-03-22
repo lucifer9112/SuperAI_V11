@@ -3,8 +3,6 @@
 # Services: backend, frontend, redis, prometheus, grafana, nginx
 # ================================================================
 
-version: "3.9"
-
 x-env: &env
   REDIS_URL: redis://redis:6379/0
   LOGGING__LEVEL: INFO
