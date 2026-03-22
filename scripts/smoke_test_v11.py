@@ -86,7 +86,18 @@ class SmokeTester:
     @staticmethod
     def _is_ngrok_interstitial(text: str) -> bool:
         lowered = text.lower()
-        return "ngrok" in lowered and "browser warning" in lowered
+        if "ngrok" not in lowered:
+            return False
+        return any(
+            marker in lowered
+            for marker in (
+                "browser warning",
+                "assets.ngrok.com",
+                "ngrok-free.dev",
+                "ngrok error",
+                "tunnel not found",
+            )
+        )
 
     def pass_result(self, name: str, detail: str) -> None:
         self.add_result(name, "PASS", detail)
@@ -180,7 +191,7 @@ class SmokeTester:
 
         if response.status_code != expected_status:
             if self._is_ngrok_interstitial(response.text):
-                self.fail_result(name, "ngrok browser warning page returned instead of expected route")
+                self.fail_result(name, "ngrok HTML page returned instead of expected route; tunnel URL may be stale or blocked")
                 return None
             self.fail_result(name, f"Expected HTTP {expected_status}, got {response.status_code}")
             return None
