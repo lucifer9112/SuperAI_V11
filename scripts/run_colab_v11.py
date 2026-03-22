@@ -380,9 +380,14 @@ def open_tunnel(token: str, port: int) -> str:
         p_fail(f"ngrok error: {exc}")
 
 
-def print_summary(url: str) -> None:
+def print_summary(url: str, port: int) -> None:
     p_head("SuperAI V11 is LIVE")
+    local_url = f"http://127.0.0.1:{port}"
     endpoints = [
+        ("Local URL", local_url),
+        ("Local Docs", f"{local_url}/docs"),
+        ("Local Health", f"{local_url}/health"),
+        ("", ""),
         ("Public URL", url),
         ("API Docs", f"{url}/docs"),
         ("Health", f"{url}/health"),
@@ -417,7 +422,12 @@ def print_summary(url: str) -> None:
             print(f"  \033[32m{label:20s}\033[0m: {value}")
 
     print(f"\n  Logs: {LOG}")
-    print("\n  Quick test:")
+    print("\n  Recommended tests:")
+    print("  1. Manual browser/live testing from your device: use the Public URL above.")
+    print("  2. Automated smoke tests from inside Colab: use the Local URL to avoid ngrok interstitial pages.")
+    print("\n  Local smoke test:")
+    print(f"  python scripts/smoke_test_v11.py --base-url {local_url} --strict-features")
+    print("\n  Public quick test:")
     print(f"  curl -X POST {url}/api/v1/chat/ \\")
     print('    -H "Content-Type: application/json" \\')
     print('    -d \'{"prompt":"Hello V11! What can you do?","max_tokens":128}\'')
@@ -437,9 +447,10 @@ def main() -> None:
     patch_config(device, args.model, args.port, args.safe_mode, features)
     proc = start_server(args.port)
     url = open_tunnel(args.token, args.port)
-    print_summary(url)
+    print_summary(url, args.port)
 
     os.environ["SUPERAI_V11_URL"] = url
+    os.environ["SUPERAI_V11_LOCAL_URL"] = f"http://127.0.0.1:{args.port}"
     p_info("Press Ctrl+C to stop")
     try:
         proc.wait()
