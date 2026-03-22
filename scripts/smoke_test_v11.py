@@ -34,6 +34,13 @@ DISABLED_MARKERS = (
     "disabled",
 )
 
+NGROK_BYPASS_HEADERS = {
+    # ngrok free tunnels may serve an interstitial/browser warning page to
+    # non-browser clients unless this header is present.
+    "ngrok-skip-browser-warning": "true",
+    "User-Agent": "SuperAI-V11-SmokeTest/1.0",
+}
+
 
 @dataclass
 class CheckResult:
@@ -48,6 +55,7 @@ class SmokeTester:
         self.timeout = timeout
         self.strict_features = strict_features
         self.session = requests.Session()
+        self.session.headers.update(NGROK_BYPASS_HEADERS)
         self.results: list[CheckResult] = []
         self.session_id = f"smoke-{uuid.uuid4().hex[:8]}"
         self.response_id = ""
@@ -74,6 +82,11 @@ class SmokeTester:
     def add_result(self, name: str, status: str, detail: str) -> None:
         self.results.append(CheckResult(name=name, status=status, detail=detail))
         print(f"[{status}] {name}: {detail}")
+
+    @staticmethod
+    def _is_ngrok_interstitial(text: str) -> bool:
+        lowered = text.lower()
+        return "ngrok" in lowered and "browser warning" in lowered
 
     def pass_result(self, name: str, detail: str) -> None:
         self.add_result(name, "PASS", detail)
@@ -124,12 +137,18 @@ class SmokeTester:
             return None
 
         if response.status_code >= 400:
+            if self._is_ngrok_interstitial(response.text):
+                self.fail_result(name, "ngrok browser warning page returned instead of API JSON")
+                return None
             self.fail_result(name, f"HTTP {response.status_code}: {response.text[:300]}")
             return None
 
         try:
             payload = response.json()
         except Exception as exc:
+            if self._is_ngrok_interstitial(response.text):
+                self.fail_result(name, "ngrok browser warning page returned instead of API JSON")
+                return None
             self.fail_result(name, f"Invalid JSON response: {exc}")
             return None
 
@@ -160,6 +179,9 @@ class SmokeTester:
             return None
 
         if response.status_code != expected_status:
+            if self._is_ngrok_interstitial(response.text):
+                self.fail_result(name, "ngrok browser warning page returned instead of expected route")
+                return None
             self.fail_result(name, f"Expected HTTP {expected_status}, got {response.status_code}")
             return None
 
@@ -249,6 +271,9 @@ class SmokeTester:
             return
 
         if response.status_code >= 400:
+            if self._is_ngrok_interstitial(response.text):
+                self.fail_result(name, "ngrok browser warning page returned instead of SSE stream")
+                return
             self.fail_result(name, f"HTTP {response.status_code}: {response.text[:300]}")
             return
 
@@ -503,7 +528,12 @@ class SmokeTester:
         name = "WebSocket chat"
         url = self.ws_url("/ws/chat")
         try:
-            async with websockets.connect(url, open_timeout=20, close_timeout=10) as ws:
+            async with websockets.connect(
+                url,
+                extra_headers=NGROK_BYPASS_HEADERS,
+                open_timeout=20,
+                close_timeout=10,
+            ) as ws:
                 await ws.send(json.dumps({"type": "ping"}))
                 pong = json.loads(await asyncio.wait_for(ws.recv(), timeout=20))
                 if pong.get("type") != "pong":
