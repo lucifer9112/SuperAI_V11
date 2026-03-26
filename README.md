@@ -1,8 +1,8 @@
-# SuperAI V11
+# SuperAI V12
 
-SuperAI V11 is a full-stack AI assistant platform built with FastAPI and Next.js. It combines chat, tool calling, memory, feedback capture, agent orchestration, voice I/O, document processing, retrieval, and optional RLHF / consensus workflows behind a single API and UI.
+SuperAI V12 is a full-stack AI assistant platform built with FastAPI and Next.js. It combines chat, tool calling, memory, feedback capture, agent orchestration, voice I/O, document processing, retrieval, RLHF / consensus workflows, context engineering, and cognitive reasoning behind a single API and UI.
 
-This repository contains the `superai_v11_final` project as a standalone application package.
+This repository contains the `superai_v12` project as a standalone application package.
 
 ## Snapshot
 
@@ -11,6 +11,7 @@ This repository contains the `superai_v11_final` project as a standalone applica
 - Core pipeline: routing, memory, monitoring, security, feedback
 - V10 features: reflection, learning pipeline, advanced memory, parallel agents, RAG, self-improvement, model registry, AI security, multimodal fusion, task queue, personality adaptation
 - V11 features: RLHF pipeline, tool calling engine, multi-model consensus
+- V12 features: workflow engine, 39 skill plugins, 6 bundles, code review, debugging, context compression, LLM-as-Judge, BDI cognitive engine
 - Verified in this workspace:
   - `python -m pytest -q` -> `82 passed`
   - `npm run type-check` -> passed
@@ -22,7 +23,7 @@ This repository contains the `superai_v11_final` project as a standalone applica
 flowchart LR
     UI["Next.js Frontend"] --> REST["FastAPI REST API"]
     UI --> WS["WebSocket Chat Stream"]
-    REST --> ORCH["OrchestratorV11"]
+    REST --> ORCH["OrchestratorV12"]
     WS --> ORCH
     ORCH --> ROUTER["Task Router"]
     ORCH --> MEMORY["Memory Service"]
@@ -68,9 +69,19 @@ flowchart LR
 - Tool calling engine with built-in tools
 - Consensus engine for multi-model voting
 
+### V12 feature layer
+
+- Agentic workflow engine (brainstorm → plan → execute → review → complete)
+- Skills/Plugin system with 39 built-in skills and 6 role-based bundles
+- Code review engine with severity scoring
+- Systematic debugger (4-phase root cause analysis)
+- Context compression engine (3-phase compression, degradation detection)
+- LLM-as-Judge evaluator (rubric scoring, pairwise comparison)
+- BDI cognitive engine (Belief-Desire-Intention tracking)
+
 ## Built-in Tools
 
-The V11 tool engine ships with these built-in tools:
+The V12 tool engine ships with these built-in tools:
 
 - `web_search`
 - `calculator`
@@ -85,7 +96,7 @@ The V11 tool engine ships with these built-in tools:
 ## Repository Layout
 
 ```text
-superai_v11_final/
+superai_v12/
 |- backend/
 |  |- api/                 REST + WebSocket routes
 |  |- app/                 app factory + dependency container
@@ -97,6 +108,13 @@ superai_v11_final/
 |  |- tools/               tool registry + executor + calling engine
 |  |- rlhf/                reward model + RLHF pipeline
 |  |- consensus/           multi-model consensus engine
+|  |- workflow/            V12 agentic workflow engine
+|  |- skills/              V12 skill plugins + bundles
+|  |- code_review/         V12 code review engine
+|  |- debugging/           V12 systematic debugger
+|  |- context/             V12 context compression engine
+|  |- evaluation/          V12 LLM-as-Judge evaluator
+|  |- cognitive/           V12 BDI cognitive engine
 |  `- main.py              backend entry point
 |- frontend/
 |  |- src/app/             Next.js app router
@@ -334,6 +352,13 @@ Base prefix: `/api/v1`
 - `/rlhf`
 - `/tools`
 - `/consensus`
+- `/workflow`
+- `/skills`
+- `/code-review`
+- `/debug`
+- `/context`
+- `/evaluation`
+- `/cognitive`
 
 ### Health and docs
 
@@ -468,7 +493,8 @@ Important note:
 ## Current Development Notes
 
 - Some comments, file headers, and container names still carry legacy `V9` / `V10` labels from earlier iterations.
-- Runtime behavior and feature wiring are V11-oriented.
+- Runtime behavior and feature wiring are V12-oriented.
+- V12 features (workflow, skills, code-review, debugging, context, evaluation, cognitive) are disabled by default in `config.yaml`.
 - Consensus is disabled by default until you configure `consensus.models` with at least two models.
 - Voice is disabled by default in `config.yaml`.
 - Vision falls back to a simple OpenCV description if no vision model is configured.

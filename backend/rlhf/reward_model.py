@@ -106,7 +106,9 @@ class NeuralRewardModel:
             with torch.no_grad():
                 return float(self._head(x).squeeze().item())
         try:   return await asyncio.to_thread(_fwd)
-        except: return 0.0
+        except Exception as e:
+            logger.warning("NeuralRewardModel score failed", error=str(e))
+            return 0.0
 
     async def train(self, pairs: List[Dict], epochs: int = 5, lr: float = 2e-4) -> Dict:
         if self._is_training: return {"error": "already_training"}

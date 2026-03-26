@@ -1,6 +1,6 @@
 {
-  "name": "superai-v11-frontend",
-  "version": "11.0.0",
+  "name": "superai-v12-frontend",
+  "version": "12.0.0",
   "private": true,
   "scripts": {
     "dev":        "next dev",

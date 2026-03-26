@@ -1,5 +1,5 @@
 # ================================================================
-# SuperAI V11 - requirements/base.txt
+# SuperAI V12 - requirements/base.txt
 # Cross-platform runtime dependencies shared by local dev + Colab
 # ================================================================
 

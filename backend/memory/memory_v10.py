@@ -302,7 +302,14 @@ class MemoryServiceV10:
         recalled: List[Dict[str, str]] = []
         for entry in result.entries:
             if entry.source == "conversation":
-                recalled.append({"user": entry.content, "assistant": ""})
+                # Parse "Q: ...\nA: ..." format back into user/assistant
+                content = entry.content
+                user_part, assistant_part = content, ""
+                if content.startswith("Q: "):
+                    parts = content.split("\nA: ", 1)
+                    user_part = parts[0][3:]  # strip "Q: " prefix
+                    assistant_part = parts[1] if len(parts) > 1 else ""
+                recalled.append({"user": user_part, "assistant": assistant_part})
             else:
                 recalled.append({"user": f"Relevant memory: {entry.content}", "assistant": ""})
         return recalled

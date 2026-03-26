@@ -2,7 +2,7 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: superai_v11_backend
+  - job_name: superai_v12_backend
     static_configs:
       - targets: ["backend:8000"]
     metrics_path: /api/v1/system/metrics

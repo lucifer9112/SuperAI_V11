@@ -189,6 +189,8 @@ class SemanticGraph:
         self.max_nodes  = max_nodes
         self._nodes: Dict[str, GraphNode] = {}
         self._edges: List[GraphEdge]      = []
+        self._update_count: int = 0
+        self._auto_save_interval: int = 10
         self._load()
         logger.info("SemanticGraph ready", nodes=len(self._nodes))
 
@@ -207,6 +209,11 @@ class SemanticGraph:
         for i in range(len(entity_list)):
             for j in range(i + 1, min(i + 3, len(entity_list))):
                 self._add_edge(entity_list[i], entity_list[j], "co_occurs")
+
+        # Auto-save periodically to prevent data loss
+        self._update_count += 1
+        if self._update_count % self._auto_save_interval == 0:
+            self.save()
 
     def query(self, keyword: str, top_k: int = 5) -> List[Dict]:
         """Find entities related to keyword."""

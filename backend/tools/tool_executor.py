@@ -14,7 +14,8 @@ from backend.tools.tool_registry import ToolDef, ToolRegistry, ToolResult
 
 MAX_OUT = 2000  # chars
 BLOCKED_MODULES = {"os", "sys", "subprocess", "socket", "requests", "importlib", "pathlib"}
-BLOCKED_CALLS = {"__import__", "open", "exec", "eval", "compile", "input"}
+BLOCKED_CALLS = {"__import__", "open", "exec", "eval", "compile", "input",
+                 "getattr", "setattr", "delattr", "globals", "locals", "vars"}
 
 
 def _call_name(node: ast.AST) -> Optional[str]:
@@ -136,7 +137,7 @@ async def _wikipedia(topic: str, sentences: int = 3) -> str:
     def _run():
         try:
             url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(topic)}"
-            req = urllib.request.Request(url, headers={"User-Agent": "SuperAI-V11/1.0"})
+            req = urllib.request.Request(url, headers={"User-Agent": "SuperAI-V12/1.0"})
             with urllib.request.urlopen(req, timeout=10) as r:
                 import json as _j
                 data = _j.loads(r.read())
@@ -152,7 +153,7 @@ async def _weather(city: str) -> str:
     def _run():
         url = f"https://wttr.in/{city.replace(' ','+')}?format=3"
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "SuperAI-V11/1.0"})
+            req = urllib.request.Request(url, headers={"User-Agent": "SuperAI-V12/1.0"})
             with urllib.request.urlopen(req, timeout=8) as r:
                 return r.read().decode()
         except Exception as e:
@@ -163,7 +164,7 @@ async def _weather(city: str) -> str:
 async def _file_read(filename: str) -> str:
     safe_dir = Path("data/uploads/")
     target   = (safe_dir / Path(filename).name).resolve()
-    if not str(target).startswith(str(safe_dir.resolve())):
+    if not target.is_relative_to(safe_dir.resolve()):
         return "Access denied."
     if not target.exists(): return f"File not found: {filename}"
     try:

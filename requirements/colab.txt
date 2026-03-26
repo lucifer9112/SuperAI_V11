@@ -1,5 +1,5 @@
 # ================================================================
-# SuperAI V11 - requirements/colab.txt
+# SuperAI V12 - requirements/colab.txt
 # Colab T4 GPU optimised (torch pre-installed, skipped here)
 # Run: pip install -r requirements/colab.txt
 # ================================================================

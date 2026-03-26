@@ -38,7 +38,7 @@ class ModelSettings(BaseSettings):
 class MemorySettings(BaseSettings):
     model_config=SettingsConfigDict(env_prefix="MEMORY__")
     backend:str=Field(default_factory=lambda:_y("memory","backend","sqlite"))
-    db_path:str=Field(default_factory=lambda:_y("memory","db_path","data/superai_v11.db"))
+    db_path:str=Field(default_factory=lambda:_y("memory","db_path","data/superai_v12.db"))
     vector_store:str=Field(default_factory=lambda:_y("memory","vector_store","faiss"))
     vector_db_path:str=Field(default_factory=lambda:_y("memory","vector_db_path","data/vector_db/"))
     embedding_model:str=Field(default_factory=lambda:_y("memory","embedding_model","BAAI/bge-small-en-v1.5"))
@@ -93,7 +93,7 @@ class LoggingSettings(BaseSettings):
     model_config=SettingsConfigDict(env_prefix="LOGGING__")
     level:str=Field(default_factory=lambda:_y("logging","level","INFO"))
     format:str=Field(default_factory=lambda:_y("logging","format","text"))
-    file:str=Field(default_factory=lambda:_y("logging","file","logs/superai_v11.log"))
+    file:str=Field(default_factory=lambda:_y("logging","file","logs/superai_v12.log"))
     rotation:str=Field(default_factory=lambda:_y("logging","rotation","10 MB"))
     retention:str=Field(default_factory=lambda:_y("logging","retention","30 days"))
 
@@ -228,7 +228,7 @@ class AppSettings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_runtime_security(self):
-        weak = {"change-me", "change-in-production", "changeme", "colab-v11-key", "colab-v10-secret"}
+        weak = {"change-me", "change-in-production", "changeme", "colab-v12-key", "colab-v11-key", "colab-v10-secret"}
         env = (self.server.environment or "development").lower()
         if env not in {"development", "dev", "test"} and self.security.secret_key.strip().lower() in weak:
             raise ValueError("SECRET_KEY must be set to a strong non-default value outside development/test")

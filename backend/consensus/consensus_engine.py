@@ -202,6 +202,11 @@ class ConsensusEngine:
         self._conflict_log: List[Dict] = []
         logger.info("ConsensusEngine ready", models=model_names, strategy=strategy.value)
 
+    @property
+    def model_count(self) -> int:
+        """Public accessor for number of configured models."""
+        return len(self._models)
+
     async def run(self, prompt: str, max_tokens: int = 512,
                   temperature: float = 0.7,
                   strategy: Optional[VotingStrategy] = None) -> ConsensusResult:
@@ -210,7 +215,10 @@ class ConsensusEngine:
 
         # Single-model fast path
         if len(self._models) < 2:
-            model = self._models[0] if self._models else ""
+            if not self._models:
+                return ConsensusResult(prompt, "No models configured for consensus.",
+                    "none", "none", 0.0, False, [], round((time.perf_counter()-t0)*1000,1))
+            model = self._models[0]
             try:   ans, tok = await self._loader.infer(model, prompt, max_tokens, temperature)
             except Exception as e: ans, tok = f"Error: {e}", 0
             return ConsensusResult(prompt, ans, model, "single", 1.0, False,

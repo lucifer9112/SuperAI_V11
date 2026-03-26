@@ -144,7 +144,7 @@ class OrchestratorV11:
 
         # [V11-S3] Consensus OR direct inference
         consensus_result = None
-        if self._consensus and len(self._consensus._models) > 1:
+        if self._consensus and self._consensus.model_count > 1:
             try:
                 consensus_result = await self._consensus.run(
                     prompt, req.max_tokens, req.temperature)
@@ -273,6 +273,22 @@ class OrchestratorV11:
         async for tok in self._models.stream(model_name,prompt,req.max_tokens,req.temperature):
             full.append(tok); yield tok
         full_text="".join(full)
+
+        # [F1] Self-reflection on completed stream
+        confidence=1.0
+        if self._reflection:
+            try:
+                r=await self._reflection.reflect(req.prompt,full_text,
+                    task_type.value if hasattr(task_type,"value") else str(task_type),model_name)
+                full_text=r.final_answer; confidence=r.confidence
+                if self._improve and confidence<0.5:
+                    await self._improve.record_low_confidence(confidence,req.prompt,full_text,sid)
+            except Exception as e: logger.warning("Stream reflection failed",error=str(e))
+
+        # Output safety filter
+        if self._security and self._security.cfg.output_filter:
+            full_text=self._security.filter_output(full_text)
+
         if self._personality:
             full_text=self._personality.personalize_response(full_text,sid)
 
@@ -285,7 +301,7 @@ class OrchestratorV11:
         await self._memory.save_turn(sid,req.prompt,full_text,response_id=rid)
         if self._uni_memory and hasattr(self._uni_memory,"_episodic"):
             try:
-                await self._uni_memory._episodic.store(sid,req.prompt,full_text,importance=1.0)
+                await self._uni_memory._episodic.store(sid,req.prompt,full_text,importance=confidence)
             except Exception:
                 pass
 

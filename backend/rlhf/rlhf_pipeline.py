@@ -64,10 +64,10 @@ class FeedbackToRLHFConverter:
                     lo_rows = await lo_cur.fetchall()
 
                     hi_turns = await self._fetch_turns_by_response_ids(
-                        cv_db, [row["response_id"] for row in hi_rows]
+                        cv_db, [row["response_id"] for row in hi_rows if row["response_id"]]
                     )
                     lo_turns = await self._fetch_turns_by_response_ids(
-                        cv_db, [row["response_id"] for row in lo_rows]
+                        cv_db, [row["response_id"] for row in lo_rows if row["response_id"]]
                     )
 
                     if not hi_turns:

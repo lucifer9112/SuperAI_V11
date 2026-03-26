@@ -18,6 +18,11 @@ class ServiceContainer:
         self._task_queue=None; self._personality_engine=None
         # V11 new
         self._rlhf_pipeline=None; self._tool_engine=None; self._consensus_engine=None
+        # V12 new
+        self._workflow_engine=None; self._skill_registry=None
+        self._code_review_engine=None; self._debugger=None
+        # V12 context engineering
+        self._context_compressor=None; self._llm_judge=None; self._bdi_engine=None
 
     async def startup(self):
         from backend.services.monitoring_service import MonitoringService
@@ -49,6 +54,7 @@ class ServiceContainer:
 
         await self._load_v10_features()
         await self._load_v11_features()
+        await self._load_v12_features()
 
         from backend.core.orchestrator import OrchestratorV11
         self._orchestrator = OrchestratorV11(
@@ -90,6 +96,16 @@ class ServiceContainer:
         await self._try_load("V11-S1 RLHF",      self._load_rlhf,      cfg)
         await self._try_load("V11-S2 Tools",      self._load_tools,     cfg)
         await self._try_load("V11-S3 Consensus",  self._load_consensus, cfg)
+
+    async def _load_v12_features(self):
+        cfg = settings
+        await self._try_load("V12-S4 Workflow",    self._load_workflow,     cfg)
+        await self._try_load("V12-S5 Skills",      self._load_skills,       cfg)
+        await self._try_load("V12-S5 CodeReview",  self._load_code_review,  cfg)
+        await self._try_load("V12-S5 Debugging",   self._load_debugging,    cfg)
+        await self._try_load("V12-S6 Context",     self._load_context,      cfg)
+        await self._try_load("V12-S6 Evaluation",  self._load_evaluation,   cfg)
+        await self._try_load("V12-S6 Cognitive",   self._load_cognitive,    cfg)
 
     async def _try_load(self, name, fn, cfg):
         try:
@@ -185,6 +201,44 @@ class ServiceContainer:
             use_meta_evaluator=getattr(consensus_cfg,"use_meta_evaluator",False),
             timeout_s=getattr(consensus_cfg,"timeout_s",60))
 
+    # ── V12 loaders ────────────────────────────────────────────────
+    async def _load_workflow(self, cfg):
+        from backend.workflow.engine import WorkflowEngine
+        wf_cfg = getattr(cfg, "workflow", None)
+        max_wf = getattr(wf_cfg, "max_active_workflows", 5) if wf_cfg else 5
+        self._workflow_engine = WorkflowEngine(
+            model_loader=self._model_loader,
+            parallel_executor=self._parallel_executor,
+            max_workflows=max_wf)
+
+    async def _load_skills(self, cfg):
+        from backend.skills.skill_registry import SkillRegistry
+        sk_cfg = getattr(cfg, "skills", None)
+        skills_dir = getattr(sk_cfg, "skills_dir", "backend/skills/builtin/") if sk_cfg else ""
+        self._skill_registry = SkillRegistry(skills_dir=skills_dir, auto_load=bool(skills_dir))
+
+    async def _load_code_review(self, cfg):
+        from backend.code_review.code_review import CodeReviewEngine
+        self._code_review_engine = CodeReviewEngine(model_loader=self._model_loader)
+
+    async def _load_debugging(self, cfg):
+        from backend.debugging.debugger import SystematicDebugger
+        self._debugger = SystematicDebugger(model_loader=self._model_loader)
+
+    async def _load_context(self, cfg):
+        from backend.context.context_compressor import ContextCompressor
+        ctx_cfg = getattr(cfg, "context", None)
+        max_tok = getattr(ctx_cfg, "max_tokens", 3000) if ctx_cfg else 3000
+        self._context_compressor = ContextCompressor(model_loader=self._model_loader, max_tokens=max_tok)
+
+    async def _load_evaluation(self, cfg):
+        from backend.evaluation.llm_judge import LLMJudge
+        self._llm_judge = LLMJudge(model_loader=self._model_loader)
+
+    async def _load_cognitive(self, cfg):
+        from backend.cognitive.bdi_engine import BDICognitiveEngine
+        self._bdi_engine = BDICognitiveEngine(model_loader=self._model_loader)
+
     # ── Shutdown ────────────────────────────────────────────────────
     async def shutdown(self):
         if self._memory_service:   await self._memory_service.close()
@@ -247,6 +301,21 @@ class ServiceContainer:
     def tool_engine(self):        return self._tool_engine
     @property
     def consensus_engine(self):   return self._consensus_engine
+    # Optional V12
+    @property
+    def workflow_engine(self):    return self._workflow_engine
+    @property
+    def skill_registry(self):    return self._skill_registry
+    @property
+    def code_review_engine(self): return self._code_review_engine
+    @property
+    def debugger(self):           return self._debugger
+    @property
+    def context_compressor(self): return self._context_compressor
+    @property
+    def llm_judge(self):          return self._llm_judge
+    @property
+    def bdi_engine(self):         return self._bdi_engine
 
 
 container = ServiceContainer()
@@ -272,3 +341,10 @@ def get_task_queue():         return container.task_queue
 def get_rlhf_pipeline():      return container.rlhf_pipeline
 def get_tool_engine():        return container.tool_engine
 def get_consensus_engine():   return container.consensus_engine
+def get_workflow_engine():    return container.workflow_engine
+def get_skill_registry():     return container.skill_registry
+def get_code_review_engine(): return container.code_review_engine
+def get_debugger():           return container.debugger
+def get_context_compressor(): return container.context_compressor
+def get_llm_judge():          return container.llm_judge
+def get_bdi_engine():         return container.bdi_engine

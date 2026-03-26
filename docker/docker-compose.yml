@@ -1,5 +1,5 @@
 # ================================================================
-# SuperAI V11 - docker/docker-compose.yml
+# SuperAI V12 - docker/docker-compose.yml
 # Services: backend, frontend, redis, prometheus, grafana, nginx
 # ================================================================
 
@@ -17,13 +17,13 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
-    container_name: superai_v11_backend
+    container_name: superai_v12_backend
     <<: *restart
     ports:
       - "8000:8000"
     volumes:
-      - v11_data:/app/data
-      - v11_logs:/app/logs
+      - v12_data:/app/data
+      - v12_logs:/app/logs
       - hf_cache:/root/.cache/huggingface
     environment:
       <<: *env
@@ -48,7 +48,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.frontend
-    container_name: superai_v11_frontend
+    container_name: superai_v12_frontend
     <<: *restart
     ports:
       - "3000:3000"
@@ -63,7 +63,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: superai_v11_redis
+    container_name: superai_v12_redis
     <<: *restart
     ports:
       - "6379:6379"
@@ -80,7 +80,7 @@ services:
 
   prometheus:
     image: prom/prometheus:latest
-    container_name: superai_v11_prometheus
+    container_name: superai_v12_prometheus
     <<: *restart
     ports:
       - "9090:9090"
@@ -92,7 +92,7 @@ services:
 
   grafana:
     image: grafana/grafana:latest
-    container_name: superai_v11_grafana
+    container_name: superai_v12_grafana
     <<: *restart
     ports:
       - "3001:3000"
@@ -108,7 +108,7 @@ services:
 
   nginx:
     image: nginx:alpine
-    container_name: superai_v11_nginx
+    container_name: superai_v12_nginx
     <<: *restart
     ports:
       - "80:80"
@@ -121,8 +121,8 @@ services:
       - superai_net
 
 volumes:
-  v11_data:
-  v11_logs:
+  v12_data:
+  v12_logs:
   redis_data:
   prometheus_data:
   grafana_data:

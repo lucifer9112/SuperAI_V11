@@ -266,3 +266,111 @@ class ParallelAgentExecutor:
             return "No agent could complete the task.", "none"
         best = max(valid, key=lambda r: r.confidence)
         return best.answer, best.agent_type
+
+
+# ── V12: Subagent Orchestrator ────────────────────────────────────
+
+class SubagentOrchestrator:
+    """
+    V12 Enhancement: dispatches tasks to fresh subagents with 2-stage review.
+    Stage 1: spec compliance (does the output match requirements?)
+    Stage 2: quality review (correctness, style, edge cases)
+
+    Inspired by Superpowers' subagent-driven-development.
+    """
+
+    def __init__(self, parallel_executor: ParallelAgentExecutor) -> None:
+        self._executor = parallel_executor
+
+    async def dispatch_task(
+        self,
+        task_description: str,
+        context: str = "",
+        agent_type: str = "",
+        model_name: str = "",
+    ) -> AgentResult:
+        """Dispatch a single task to the best-fit subagent."""
+        selected = [agent_type] if agent_type and agent_type in self._executor._agents else None
+        result = await self._executor.execute(
+            goal=task_description,
+            mode=ExecutionMode.SINGLE,
+            selected_agents=selected,
+            context=context,
+            model_name=model_name,
+        )
+        if result.agent_results:
+            return result.agent_results[0]
+        return AgentResult(
+            agent_type="none", answer="", confidence=0.0,
+            steps=0, latency_ms=0.0, error="No agent available",
+        )
+
+    async def review_output(
+        self,
+        output: str,
+        spec: str,
+        model_name: str = "",
+    ) -> Dict[str, Any]:
+        """2-stage review: spec compliance + quality."""
+        # Stage 1: spec compliance
+        spec_prompt = (
+            f"Does this output satisfy the specification?\n"
+            f"Spec: {spec[:500]}\n"
+            f"Output: {output[:500]}\n"
+            f"Answer YES or NO, then explain in one sentence."
+        )
+        spec_result = await self._executor.execute(
+            goal=spec_prompt, mode=ExecutionMode.SINGLE,
+            selected_agents=["reasoning"], model_name=model_name,
+        )
+        spec_passed = "yes" in spec_result.final_answer.lower()[:20]
+
+        # Stage 2: quality review
+        quality_prompt = (
+            f"Review this code/output for quality:\n"
+            f"{output[:500]}\n"
+            f"Score from 0-10 and list any critical issues."
+        )
+        quality_result = await self._executor.execute(
+            goal=quality_prompt, mode=ExecutionMode.SINGLE,
+            selected_agents=["coding"], model_name=model_name,
+        )
+
+        return {
+            "spec_passed": spec_passed,
+            "spec_feedback": spec_result.final_answer[:200],
+            "quality_feedback": quality_result.final_answer[:200],
+            "quality_confidence": quality_result.confidence,
+        }
+
+    async def run_with_review(
+        self,
+        task_description: str,
+        spec: str = "",
+        context: str = "",
+        model_name: str = "",
+    ) -> Dict[str, Any]:
+        """Combined dispatch + 2-stage review pipeline."""
+        t0 = time.perf_counter()
+
+        # Dispatch
+        result = await self.dispatch_task(
+            task_description, context=context, model_name=model_name,
+        )
+
+        # Review
+        review = await self.review_output(
+            output=result.answer,
+            spec=spec or task_description,
+            model_name=model_name,
+        )
+
+        return {
+            "task": task_description[:100],
+            "agent": result.agent_type,
+            "output": result.answer,
+            "confidence": result.confidence,
+            "review": review,
+            "total_ms": (time.perf_counter() - t0) * 1000,
+        }
+

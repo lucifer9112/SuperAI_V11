@@ -38,9 +38,11 @@ class SecurityEngine:
     def validate(self, prompt: str) -> Optional[Dict[str, Any]]:
         if not self.cfg.enabled:
             return None
+        # Normalize Unicode to prevent homoglyph bypass attacks
+        normalized = _normalize_text(prompt)
         if self.cfg.prompt_injection_guard:
             for pat in self._inj_re:
-                if pat.search(prompt):
+                if pat.search(normalized):
                     logger.warning("Injection blocked", pattern=pat.pattern[:40])
                     return {"reason": "prompt_injection", "pattern": pat.pattern[:40]}
         return None
