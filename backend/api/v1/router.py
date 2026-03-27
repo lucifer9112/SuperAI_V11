@@ -1,46 +1,69 @@
-"""SuperAI V11 — backend/api/v1/router.py"""
+"""API router for the stable default runtime."""
+
+from __future__ import annotations
+
 from fastapi import APIRouter
-from backend.api.v1 import (
-    chat, agents, memory, voice, vision, files, code,
-    system, feedback, intelligence, knowledge, learning,
-    security_info, personality_api,
-)
-# V11 new routers
-from backend.api.v1 import rlhf_api, tools_api, consensus_api
-# V12 new routers
-from backend.api.v1 import workflow_api, skills_api, code_review_api, debug_api
-# V12 context engineering routers
-from backend.api.v1 import context_api, evaluation_api, cognitive_api
+
+from backend.config.settings import settings
+from backend.api.v1 import chat, memory, system
 
 api_router = APIRouter()
-# V9/V10 core
-for mod, prefix, tag in [
-    (chat,        "/chat",         "Chat"),
-    (agents,      "/agents",       "Agents"),
-    (memory,      "/memory",       "Memory"),
-    (voice,       "/voice",        "Voice"),
-    (vision,      "/vision",       "Vision"),
-    (files,       "/files",        "Files"),
-    (code,        "/code",         "Code"),
-    (system,      "/system",       "System"),
-    (feedback,    "/feedback",     "Feedback"),
-    (intelligence,"/intelligence", "Intelligence"),
-    (knowledge,   "/knowledge",    "Knowledge"),
-    (learning,    "/learning",     "Learning"),
-    (security_info,"/security",    "Security"),
-    (personality_api,"/personality","Personality"),
-    # V11 new
-    (rlhf_api,    "/rlhf",         "RLHF V11"),
-    (tools_api,   "/tools",        "Tools V11"),
-    (consensus_api,"/consensus",   "Consensus V11"),
-    # V12 new
-    (workflow_api,   "/workflow",    "Workflow V12"),
-    (skills_api,     "/skills",      "Skills V12"),
-    (code_review_api,"/code-review", "Code Review V12"),
-    (debug_api,      "/debug",       "Debug V12"),
-    # V12 context engineering
-    (context_api,    "/context",     "Context V12"),
-    (evaluation_api, "/evaluation",  "Evaluation V12"),
-    (cognitive_api,  "/cognitive",   "Cognitive V12"),
-]:
-    api_router.include_router(mod.router, prefix=prefix, tags=[tag])
+
+api_router.include_router(chat.router, prefix="/chat", tags=["Chat"])
+api_router.include_router(system.router, prefix="/system", tags=["System"])
+api_router.include_router(memory.router, prefix="/memory", tags=["Memory"])
+
+
+def _feature_enabled(*flags: str) -> bool:
+    return any(settings.active_features.get(flag, False) for flag in flags)
+
+
+if _feature_enabled("enable_agent", "enable_parallel_agents"):
+    from backend.api.v1 import agents
+
+    api_router.include_router(agents.router, prefix="/agents", tags=["Agents"])
+
+if _feature_enabled("enable_voice"):
+    from backend.api.v1 import voice
+
+    api_router.include_router(voice.router, prefix="/voice", tags=["Voice"])
+
+if _feature_enabled("enable_vision", "enable_multimodal"):
+    from backend.api.v1 import vision
+
+    api_router.include_router(vision.router, prefix="/vision", tags=["Vision"])
+
+if _feature_enabled("enable_context"):
+    from backend.api.v1 import files
+
+    api_router.include_router(files.router, prefix="/files", tags=["Files"])
+
+if _feature_enabled("enable_code_review", "enable_debugging"):
+    from backend.api.v1 import code
+
+    api_router.include_router(code.router, prefix="/code", tags=["Code"])
+
+if _feature_enabled("enable_feedback", "enable_rlhf"):
+    from backend.api.v1 import feedback
+
+    api_router.include_router(feedback.router, prefix="/feedback", tags=["Feedback"])
+
+if _feature_enabled("enable_workflow"):
+    from backend.api.v1 import workflow_api
+
+    api_router.include_router(workflow_api.router, prefix="/workflow", tags=["Workflow"])
+
+if _feature_enabled("enable_skills"):
+    from backend.api.v1 import skills_api
+
+    api_router.include_router(skills_api.router, prefix="/skills", tags=["Skills"])
+
+if _feature_enabled("enable_cognitive"):
+    from backend.api.v1 import cognitive_api
+
+    api_router.include_router(cognitive_api.router, prefix="/cognitive", tags=["Cognitive"])
+
+if _feature_enabled("enable_judge"):
+    from backend.api.v1 import evaluation_api
+
+    api_router.include_router(evaluation_api.router, prefix="/evaluation", tags=["Evaluation"])

@@ -18,10 +18,10 @@ class MonitoringService:
         self._prom_ok   = False
         try:
             from prometheus_client import Counter, Histogram
-            self._req_ctr  = Counter("superai_v12_requests_total", "Requests", ["task", "model"])
-            self._lat_hist = Histogram("superai_v12_latency_ms",   "Latency ms",
+            self._req_ctr  = Counter("superai_v11_requests_total", "Requests", ["task", "model"])
+            self._lat_hist = Histogram("superai_v11_latency_ms",   "Latency ms",
                                         buckets=[50,100,200,500,1000,2000,5000])
-            self._tok_ctr  = Counter("superai_v12_tokens_total",   "Tokens")
+            self._tok_ctr  = Counter("superai_v11_tokens_total",   "Tokens")
             self._prom_ok  = True
         except ImportError:
             pass

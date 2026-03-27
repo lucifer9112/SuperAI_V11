@@ -1,232 +1,74 @@
+mode: "minimal"
+
 app:
   name: "SuperAI"
   version: "11.0"
   environment: "development"
+
 server:
   host: "0.0.0.0"
   port: 8000
   reload: false
   workers: 1
-  cors_origins: ["*"]
+  environment: "development"
+  cors_origins:
+    - "*"
+
 models:
   device: "auto"
-  cache_size: 2
+  cache_size: 1
   idle_timeout: 300
   default_max_tokens: 512
   default_temperature: 0.7
-  routing:
-    chat: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    code: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    reasoning: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    vision: ""
-    agent: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    fast: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    reflection: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-reflection:
-  enabled: true
-  min_confidence_threshold: 0.6
-  max_reflection_rounds: 2
-  reflection_timeout_s: 30
-learning:
-  enabled: true
-  auto_dataset_generation: true
-  min_quality_score: 4
-  dataset_path: "data/training/"
-  lora_output_dir: "data/lora_checkpoints/"
-  retrain_threshold: 50
-  scheduler_interval_hours: 6
-advanced_memory:
-  episodic_enabled: true
-  semantic_graph_enabled: true
-  emotional_tagging: true
-  episodic_db_path: "data/episodic.db"
-  semantic_graph_path: "data/knowledge_graph.json"
-  emotion_labels: ["positive","negative","curious","frustrated","neutral","urgent"]
-  max_graph_nodes: 10000
-parallel_agents:
-  enabled: true
-  max_concurrent_agents: 4
-  specializations: ["research","coding","reasoning","planning"]
-  collaboration_rounds: 2
-  conflict_resolution: "confidence"
-rag:
-  enabled: true
-  web_retrieval: true
-  chunk_size: 400
-  chunk_overlap: 80
-  top_k_chunks: 5
-  max_web_results: 5
-  cache_ttl_s: 3600
-self_improvement:
-  enabled: true
-  failure_log_path: "data/improvement_logs/"
-  analysis_interval_hours: 12
-  min_failures_to_analyze: 5
-  auto_prompt_optimization: true
-  improvement_db_path: "data/improvements.db"
-model_registry:
-  enabled: true
-  registry_path: "data/model_registry.json"
-  benchmark_on_load: false
-  auto_select_best: true
-ai_security:
-  enabled: true
-  anomaly_detection: true
-  embedding_threat_model: true
-  threat_similarity_threshold: 0.82
-  block_on_anomaly: true
-  anomaly_log_path: "data/security_logs/"
-multimodal:
-  enabled: true
-  fusion_strategy: "sequential"
-  text_weight: 0.6
-  image_weight: 0.25
-  audio_weight: 0.15
-distributed:
-  enabled: false
-  task_queue: "async"
-  max_workers: 4
-  task_retention_s: 3600
-personality:
-  name: "SuperAI"
-  version: "11.0"
-  tone: "professional"
-  enabled: true
-  emotional_intelligence: true
-  user_adaptation: true
-  emotion_state_ttl_s: 3600
-  traits:
-    curiosity: 0.8
-    empathy: 0.7
-    directness: 0.6
-    creativity: 0.75
-    caution: 0.5
-  system_prompt: "You are SuperAI V12, a next-generation AI assistant with context engineering and cognitive reasoning. You are helpful, accurate, and genuinely curious. You adapt to the user's style and always give your best possible answer."
+  primary: "Qwen/Qwen2.5-0.5B-Instruct"
+
+logging:
+  level: "INFO"
+  format: "text"
+  file: "logs/superai.log"
+  rotation: "10 MB"
+
 memory:
-  backend: "sqlite"
-  db_path: "data/superai_v12.db"
-  vector_store: "faiss"
-  vector_db_path: "data/vector_db/"
-  embedding_model: "BAAI/bge-small-en-v1.5"
-  max_history_turns: 50
-  context_window: 10
-  top_k_retrieval: 5
-  chunk_size: 512
-  chunk_overlap: 64
-  priority_decay_days: 30
-  max_memories_per_session: 200
-  high_priority_threshold: 0.8
-voice:
-  enabled: false
-  stt_model: "base"
-  tts_engine: "gtts"
-  tts_rate: 175
-  tts_volume: 0.9
-  sample_rate: 16000
-  language: "en"
-  vad_threshold: 0.3
-vision:
   enabled: true
-  max_image_size: 1024
+  backend: "sqlite"
+  db_path: "data/superai.db"
+  context_window: 5
+  max_history_turns: 20
+
 security:
   enabled: true
   prompt_injection_guard: true
   output_filter: true
-  bandit_scan: false
-  risk_threshold: "medium"
-  rate_limit_per_minute: 60
-  max_upload_size_mb: 50
-  secret_key: "change-me"
-agent:
-  max_iterations: 15
-  default_autonomy_level: 2
-  tool_timeout: 30
-  shared_context_enabled: true
-  context_bus_ttl: 3600
-feedback:
-  enabled: true
-  min_score: 1
-  max_score: 5
-  store_path: "data/feedback.db"
-  learning_threshold: 10
-logging:
-  level: "INFO"
-  format: "text"
-  file: "logs/superai_v12.log"
-  rotation: "10 MB"
-  retention: "30 days"
-files:
-  upload_dir: "data/uploads/"
-  allowed_extensions: [".pdf",".docx",".xlsx",".txt",".py",".png",".jpg",".jpeg"]
 
-# ── V12 STEP 1: RLHF System ─────────────────────────────────────
-rlhf:
-  enabled: true
-  rlhf_output_dir: "data/rlhf_checkpoints/"
-  rlhf_log_db: "data/rlhf_logs.db"
-  rlhf_scheduler_hours: 24
-  rlhf_min_pairs: 10
-  reward_model_path: "data/reward_model/reward_head.pt"
-
-# ── V12 STEP 2: Tool Calling Engine ──────────────────────────────
-tools:
-  enabled: true
-  use_llm_selection: false
-  max_tools_per_query: 3
-  safe_tools_only_below_autonomy: 3
-
-# ── V12 STEP 3: Multi-Model Consensus ────────────────────────────
-consensus:
-  enabled: false         # set to true + add models list to enable
-  models: []             # e.g. ["TinyLlama/TinyLlama-1.1B-Chat-v1.0"]
-  strategy: "auto"       # best | majority | ensemble | auto
-  conflict_threshold: 0.30
-  use_meta_evaluator: false
-  timeout_s: 60
-
-# ── V12 STEP 4: Workflow Engine ──────────────────────────────────
-workflow:
+personality:
   enabled: false
-  max_active_workflows: 5
-  task_timeout_s: 120
-  checkpoint_required: true
+  name: "SuperAI"
+  version: "11.0"
+  system_prompt: "You are SuperAI, a helpful and accurate AI assistant. Give clear, concise answers."
 
-# ── V12 STEP 5: Skills System ────────────────────────────────────
-skills:
-  enabled: false
-  skills_dir: "backend/skills/builtin/"
-  auto_activate: true
-  max_skills_per_prompt: 3
-
-# ── V12 STEP 5: Code Review ─────────────────────────────────────
-code_review:
-  enabled: false
-  severity_levels: ["critical", "warning", "info"]
-  max_issues: 20
-
-# ── V12 STEP 5: Debugging ───────────────────────────────────────
-debugging:
-  enabled: false
-  phases: ["reproduce", "isolate", "fix", "verify"]
-  max_fix_attempts: 3
-
-# ── V12 STEP 6: Context Compression ─────────────────────────────
-context:
-  enabled: false
-  max_tokens: 3000
-  compaction_threshold: 0.70
-  default_method: "auto"
-
-# ── V12 STEP 6: LLM-as-Judge Evaluation ─────────────────────────
-evaluation:
-  enabled: false
-  default_criteria: ["accuracy", "completeness", "relevance", "clarity", "safety"]
-  min_score_pass: 0.7
-
-# ── V12 STEP 6: BDI Cognitive Engine ────────────────────────────
-cognitive:
-  enabled: false
-  max_beliefs: 100
-  max_desires: 50
-  max_intentions: 20
-
+features:
+  enable_workflow: false
+  enable_skills: false
+  enable_context: false
+  enable_judge: false
+  enable_cognitive: false
+  enable_reflection: false
+  enable_learning: false
+  enable_advanced_memory: false
+  enable_parallel_agents: false
+  enable_rag: false
+  enable_self_improvement: false
+  enable_model_registry: false
+  enable_ai_security: false
+  enable_multimodal: false
+  enable_distributed: false
+  enable_personality: false
+  enable_rlhf: false
+  enable_tools: false
+  enable_consensus: false
+  enable_code_review: false
+  enable_debugging: false
+  enable_voice: false
+  enable_vision: false
+  enable_feedback: false
+  enable_agent: false

@@ -1,4 +1,5 @@
 """SuperAI V11 - backend/core/logging.py - Centralized JSON logging."""
+
 from __future__ import annotations
 
 import json
@@ -74,7 +75,7 @@ def setup_logging() -> None:
         "level": cfg.level,
         "format": "{message}" if cfg.format == "json" else text_format,
         "rotation": cfg.rotation,
-        "retention": cfg.retention,
+        "retention": "30 days",
         "catch": True,
         "serialize": cfg.format == "json",
     }

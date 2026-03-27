@@ -119,7 +119,7 @@ def install_deps(safe_mode: bool) -> None:
 
     _pip_install(["--upgrade", "pip", "setuptools", "wheel"], "Build tooling", fatal=True)
     _pip_install(
-        ["-r", str(PROJECT / "requirements" / "base.txt")],
+        ["-r", str(PROJECT / "requirements.txt")],
         "Core Python packages",
         fatal=True,
     )
@@ -134,14 +134,6 @@ def install_deps(safe_mode: bool) -> None:
         return
 
     optional_groups = [
-        (
-            "Model packages",
-            [
-                "transformers==4.45.2",
-                "accelerate==0.34.2",
-                "sentence-transformers==3.1.1",
-            ],
-        ),
         ("Vector packages", ["faiss-cpu==1.8.0"]),
         (
             "Voice packages",
@@ -173,6 +165,8 @@ def verify_runtime_deps() -> None:
         "httpx",
         "prometheus_client",
         "pyngrok",
+        "transformers",
+        "torch",
     ]
     missing = []
 
