@@ -57,6 +57,8 @@ class ParallelAgentRequest(BaseModel):
 
 @router.post("/parallel-agents", response_model=APIResponse, summary="F4: Run parallel specialized agents")
 async def parallel_agents(req: ParallelAgentRequest, orch=Depends(get_orchestrator)) -> APIResponse:
+    if orch is None:
+        return APIResponse(success=False, error="Orchestrator not loaded")
     result = await orch.run_parallel_agents(
         goal=req.goal,
         mode=req.mode,

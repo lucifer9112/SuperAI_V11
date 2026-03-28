@@ -81,6 +81,100 @@ class OrchestratorV11:
             return await self._models.count_tokens(model_name, text)
         return max(1, len(text.split()))
 
+    def _should_fast_path(self, req: ChatRequest, task_type: TaskType) -> bool:
+        if task_type != TaskType.CHAT:
+            return False
+        if req.force_model or req.force_task:
+            return False
+        prompt = req.prompt.strip()
+        if not prompt or len(prompt) > 160:
+            return False
+        if prompt.count("\n") > 1:
+            return False
+        lower = prompt.lower()
+        complex_markers = (
+            "search",
+            "latest",
+            "today",
+            "news",
+            "document",
+            "pdf",
+            "file",
+            "image",
+            "audio",
+            "tool",
+            "agent",
+            "workflow",
+            "compare",
+            "research",
+            "analyze",
+            "http://",
+            "https://",
+        )
+        return not any(marker in lower for marker in complex_markers)
+
+    async def _fast_chat(self, req: ChatRequest, sid: str, rid: str, t0: float, task_type: TaskType) -> ChatResponse:
+        if self._personality:
+            from backend.memory.advanced_memory import detect_emotion
+
+            self._personality.update_session(sid, req.prompt, detect_emotion(req.prompt))
+        pa = self._personality.get_system_prompt_addon(sid) if self._personality else ""
+        prompt = self._build_prompt(req.prompt, task_type, [], pa=pa)
+        model_name = self.select_model_for_task(task_type, req.force_model)
+        answer, tokens = await self._models.infer(model_name, prompt, req.max_tokens, req.temperature)
+
+        if self._security and self._security.cfg.output_filter:
+            answer = self._security.filter_output(answer)
+        if self._personality:
+            answer = self._personality.personalize_response(answer, sid)
+
+        if self._memory:
+            await self._memory.save_turn(sid, req.prompt, answer, response_id=rid)
+        ms = (time.perf_counter() - t0) * 1000
+        if self._monitoring:
+            self._monitoring.record_request(task_type=task_type.value, model=model_name, latency_ms=ms, tokens=tokens)
+        logger.debug("Orchestrator fast path used", session_id=sid, model=model_name)
+        return ChatResponse(
+            answer=answer,
+            session_id=sid,
+            task_type=task_type.value,
+            model_used=model_name,
+            tokens_used=tokens,
+            latency_ms=round(ms, 2),
+            response_id=rid,
+        )
+
+    async def _fast_chat_stream(self, req: ChatRequest, sid: str, rid: str, t0: float, task_type: TaskType) -> AsyncGenerator[str, None]:
+        if self._personality:
+            from backend.memory.advanced_memory import detect_emotion
+
+            self._personality.update_session(sid, req.prompt, detect_emotion(req.prompt))
+        pa = self._personality.get_system_prompt_addon(sid) if self._personality else ""
+        prompt = self._build_prompt(req.prompt, task_type, [], pa=pa)
+        model_name = self.select_model_for_task(task_type, req.force_model)
+        full: list[str] = []
+        async for tok in self._models.stream(model_name, prompt, req.max_tokens, req.temperature):
+            full.append(tok)
+            yield tok
+
+        full_text = "".join(full)
+        if self._security and self._security.cfg.output_filter:
+            full_text = self._security.filter_output(full_text)
+        if self._personality:
+            full_text = self._personality.personalize_response(full_text, sid)
+
+        if self._memory:
+            await self._memory.save_turn(sid, req.prompt, full_text, response_id=rid)
+        tokens = await self.count_text_tokens(model_name, full_text)
+        if self._monitoring:
+            self._monitoring.record_request(
+                task_type=task_type.value,
+                model=model_name,
+                latency_ms=(time.perf_counter() - t0) * 1000,
+                tokens=tokens,
+            )
+        logger.debug("Orchestrator fast stream path used", session_id=sid, model=model_name)
+
     async def chat(self, req: ChatRequest) -> ChatResponse:
         t0=time.perf_counter(); sid=req.session_id or str(uuid.uuid4())[:8]
         rid=str(uuid.uuid4())[:8]
@@ -94,6 +188,10 @@ class OrchestratorV11:
             v=self._security.validate(req.prompt)
             if v: raise SecurityViolationError("Input blocked",detail=v)
 
+        task_type=req.force_task or self.route_prompt(req.prompt)
+        if self._should_fast_path(req, task_type):
+            return await self._fast_chat(req, sid, rid, t0, task_type)
+
         # [F6] Correction check
         if self._improve: await self._improve.check_correction(req.prompt, sid)
 
@@ -103,8 +201,6 @@ class OrchestratorV11:
             from backend.memory.advanced_memory import detect_emotion
             emotion=detect_emotion(req.prompt)
             self._personality.update_session(sid, req.prompt, emotion)
-
-        task_type=req.force_task or self.route_prompt(req.prompt)
 
         # [F3] Memory
         mem_ctx={}
@@ -227,6 +323,12 @@ class OrchestratorV11:
             v=self._security.validate(req.prompt)
             if v: raise SecurityViolationError("Input blocked",detail=v)
 
+        task_type=req.force_task or self.route_prompt(req.prompt)
+        if self._should_fast_path(req, task_type):
+            async for tok in self._fast_chat_stream(req, sid, rid, t0, task_type):
+                yield tok
+            return
+
         if self._improve:
             await self._improve.check_correction(req.prompt, sid)
 
@@ -235,8 +337,6 @@ class OrchestratorV11:
             from backend.memory.advanced_memory import detect_emotion
             emotion=detect_emotion(req.prompt)
             self._personality.update_session(sid, req.prompt, emotion)
-
-        task_type=req.force_task or self.route_prompt(req.prompt)
 
         mem_ctx={}
         if self._uni_memory:
@@ -335,6 +435,20 @@ class OrchestratorV11:
 
     async def run_parallel_agents(self,goal,mode="parallel",agents=None,session_id="",model_name=""):
         if not self._parallel:
+            if not self._agents:
+                answer, _ = await self._models.infer(
+                    model_name or self._router.select_model(TaskType.AGENT),
+                    f"Goal: {goal}\n\nRespond with a concise execution plan and final recommendation.",
+                    max_tokens=512,
+                    temperature=0.3,
+                )
+                from backend.models.schemas import AgentRunResponse
+                return AgentRunResponse(
+                    goal=goal,
+                    session_id=session_id or "",
+                    final_answer=answer,
+                    iterations=1,
+                )
             from backend.models.schemas import AgentRunRequest
             return await self._agents.run(AgentRunRequest(goal=goal,session_id=session_id or None))
         from backend.agents.parallel_executor import ExecutionMode
@@ -351,8 +465,11 @@ class OrchestratorV11:
                                    summary=answer,content=text[:2000])
 
     async def file_qa(self,file_id,question):
-        ctx=await self._memory.search_by_tag(tag=f"file:{file_id}",top_k=5)
-        ct="\n".join(e.content for e in ctx)
+        if hasattr(self._memory, "search_by_tag"):
+            ctx = await self._memory.search_by_tag(tag=f"file:{file_id}", top_k=5)
+            ct = "\n".join(e.content for e in ctx)
+        else:
+            ct = ""
         answer,_=await self._models.infer(
             self._router.select_model(TaskType.DOCUMENT),
             f"Context:\n{ct}\n\nQuestion: {question}\nAnswer:")

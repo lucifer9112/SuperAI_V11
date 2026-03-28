@@ -232,12 +232,15 @@ class RAGEngine:
                 self._monitoring.record_cache_event("rag", "miss")
             return ctx
 
+        except asyncio.CancelledError:
+            logger.warning("RAG pipeline cancelled", query=query[:40])
+            await self._resolve_inflight(cache_key, "")
+            if self._monitoring:
+                self._monitoring.record_cache_event("rag", "cancelled")
+            raise
         except Exception as e:
             logger.warning("RAG pipeline error", error=str(e))
-            async with self._cache_lock:
-                future = self._inflight.pop(cache_key, None)
-                if future and not future.done():
-                    future.set_result("")
+            await self._resolve_inflight(cache_key, "")
             if self._monitoring:
                 self._monitoring.record_cache_event("rag", "error")
                 self._monitoring.record_error("rag")
@@ -255,6 +258,12 @@ class RAGEngine:
         self._cache.clear()
         if self._monitoring:
             self._monitoring.record_cache_event("rag", "clear")
+
+    async def _resolve_inflight(self, cache_key: str, result: str) -> None:
+        async with self._cache_lock:
+            future = self._inflight.pop(cache_key, None)
+            if future and not future.done():
+                future.set_result(result)
 
     def _prune_cache(self, now: Optional[float] = None) -> None:
         now = now or time.time()

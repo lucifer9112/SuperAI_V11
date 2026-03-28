@@ -104,16 +104,6 @@ class SecuritySettings(BaseSettings):
         validation_alias=AliasChoices("SECRET_KEY", "secret_key"),
     )
 
-    @model_validator(mode="after")
-    def _validate_secret_key(self):
-        if self.secret_key and self.secret_key != "change-me-in-production":
-            return self
-
-        env = os.environ.get("SERVER__ENVIRONMENT", "")
-        if env.lower() != "production":
-            return self
-        raise ValueError("SECRET_KEY must be changed in production")
-
 
 class PersonalitySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PERSONALITY__")

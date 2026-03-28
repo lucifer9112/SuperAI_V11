@@ -350,7 +350,7 @@ def get_feedback_service():
 
 
 def get_orchestrator():
-    return container.orchestrator
+    return _optional_get("_orchestrator")
 
 
 def _optional_get(attr: str):
@@ -359,6 +359,22 @@ def _optional_get(attr: str):
 
 def get_learning_pipeline():
     return _optional_get("_learning_pipeline")
+
+
+def get_reflection_engine():
+    return _optional_get("_reflection_engine")
+
+
+def get_self_improvement():
+    return _optional_get("_self_improvement")
+
+
+def get_model_registry():
+    return _optional_get("_model_registry")
+
+
+def get_task_queue():
+    return _optional_get("_task_queue")
 
 
 def get_tool_engine():

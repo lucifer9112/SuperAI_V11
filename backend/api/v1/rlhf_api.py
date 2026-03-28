@@ -41,6 +41,8 @@ async def dpo_train(req: DPORequest, rlhf=Depends(get_rlhf_pipeline)):
     if rlhf._dpo._is_running:
         return APIResponse(success=False, error="DPO already running")
     run = await rlhf.run_dpo(req.model_name, req.epochs)
+    if run.status != "done":
+        return APIResponse(success=False, error=run.metrics.get("message") or run.metrics.get("error") or "DPO failed")
     return APIResponse(data={"run_id": run.run_id, "status": run.status, "metrics": run.metrics})
 
 

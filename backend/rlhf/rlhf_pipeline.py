@@ -82,7 +82,7 @@ class FeedbackToRLHFConverter:
                                           "rejected": l["a"], "reward_diff": 2.0})
 
                     if len(pairs) < min_pairs:
-                        logger.info(
+                        logger.warning(
                             "RLHF natural pairs below target; skipping synthetic truncation bootstrap",
                             available=len(pairs),
                             requested=min_pairs,
@@ -298,9 +298,10 @@ class RLHFPipeline:
     async def run_dpo(self, model_name: str, epochs: int = 2) -> TrainingRun:
         pairs = await self._converter.build_pairs(min_pairs=5)
         if len(pairs) < 4:
+            logger.warning("RLHF DPO aborted: insufficient preference pairs", available=len(pairs), required=4)
             return TrainingRun(run_id="none", method="dpo", model=model_name,
                                n_pairs=len(pairs), status="failed",
-                               metrics={"error": f"Need >=4 pairs, got {len(pairs)}"})
+                               metrics={"error": "not_enough_pairs", "message": f"Need >=4 pairs, got {len(pairs)}"})
         run = await self._dpo.train(model_name, pairs, epochs)
         self._runs.append(run)
         await self._log_run(run)

@@ -21,7 +21,7 @@ import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 import aiosqlite
 from loguru import logger
@@ -58,6 +58,11 @@ class Episode:
     emotion:     str
     timestamp:   float
     tags:        List[str] = field(default_factory=list)
+
+
+class ContextMemory(Protocol):
+    async def get_context(self, session_id: str, prompt: str) -> List[dict[str, str]]:
+        ...
     importance:  float     = 1.0
 
 
@@ -314,11 +319,13 @@ class UnifiedMemoryRetriever:
 
     def __init__(
         self,
-        base_memory,    # V9 MemoryServiceV10
+        base_memory: ContextMemory,
         episodic: EpisodicMemory,
         graph: SemanticGraph,
         emotional_tagging: bool = True,
     ) -> None:
+        if not hasattr(base_memory, "get_context"):
+            raise TypeError("base_memory must implement async get_context(session_id, prompt)")
         self._base     = base_memory
         self._episodic = episodic
         self._graph    = graph

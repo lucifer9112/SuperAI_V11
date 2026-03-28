@@ -1,6 +1,15 @@
-"""Compatibility shim for legacy V9 imports."""
+"""Deprecated legacy V9 memory module.
 
-from backend.memory.memory_v10 import MemoryServiceV10
+This compatibility module intentionally fails on legacy class access so the
+active runtime does not silently route through outdated aliases.
+"""
 
-MemoryServiceV9 = MemoryServiceV10
-MemoryServiceV11 = MemoryServiceV10
+__all__: list[str] = []
+
+
+def __getattr__(name: str):
+    raise ImportError(
+        "backend.memory.memory_v9 is no longer available. "
+        "Use backend.services.simple_memory_service.SimpleMemoryService or "
+        "backend.memory.advanced_memory.UnifiedMemoryRetriever instead."
+    )

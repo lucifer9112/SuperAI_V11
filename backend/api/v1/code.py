@@ -7,10 +7,14 @@ router = APIRouter()
 
 @router.post("/", response_model=APIResponse, summary="Code assistant")
 async def code_action(req: CodeRequest, orch=Depends(get_orchestrator)) -> APIResponse:
+    if orch is None:
+        return APIResponse(success=False, error="Orchestrator not loaded")
     result = await orch.code(req)
     return APIResponse(data=result.model_dump())
 
 @router.post("/scan", response_model=APIResponse, summary="Security scan")
 async def scan(req: CodeRequest, orch=Depends(get_orchestrator)) -> APIResponse:
+    if orch is None:
+        return APIResponse(success=False, error="Orchestrator not loaded")
     issues = await orch.security_scan(code=req.code, language=req.language)
     return APIResponse(data={"issues": issues, "count": len(issues)})

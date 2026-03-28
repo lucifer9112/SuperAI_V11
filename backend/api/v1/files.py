@@ -15,6 +15,9 @@ async def upload(file: UploadFile = File(...),
                  orch=Depends(get_orchestrator)) -> APIResponse:
     from backend.core.exceptions import BadRequestError
 
+    if orch is None:
+        return APIResponse(success=False, error="Orchestrator not loaded")
+
     suffix = "." + (file.filename or "").rsplit(".", 1)[-1].lower()
     if suffix not in ALLOWED:
         raise BadRequestError(f"File type '{suffix}' not supported.", detail={"allowed": list(ALLOWED)})
@@ -38,5 +41,7 @@ async def upload(file: UploadFile = File(...),
 @router.post("/{file_id}/qa", response_model=APIResponse, summary="Q&A on processed file")
 async def file_qa(file_id: str, question: str = Query(...),
                   orch=Depends(get_orchestrator)) -> APIResponse:
+    if orch is None:
+        return APIResponse(success=False, error="Orchestrator not loaded")
     answer = await orch.file_qa(file_id=file_id, question=question)
     return APIResponse(data={"file_id": file_id, "answer": answer})

@@ -6,16 +6,17 @@ Built-in tools: web_search, calculator, code_execute, wikipedia, weather, file_r
 Security: code_execute uses subprocess with 10s timeout + blocked dangerous imports
 """
 from __future__ import annotations
-import asyncio, ast, math, re, subprocess, sys, tempfile, time, urllib.parse, urllib.request
+import asyncio, ast, math, os, re, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from loguru import logger
 from backend.tools.tool_registry import ToolDef, ToolRegistry, ToolResult
 
 MAX_OUT = 2000  # chars
-BLOCKED_MODULES = {"os", "sys", "subprocess", "socket", "requests", "importlib", "pathlib"}
+BLOCKED_MODULES = {"builtins", "os", "sys", "subprocess", "socket", "requests", "importlib", "pathlib"}
 BLOCKED_CALLS = {"__import__", "open", "exec", "eval", "compile", "input",
                  "getattr", "setattr", "delattr", "globals", "locals", "vars"}
+BLOCKED_NAMES = {"__builtins__", "__loader__", "__spec__", "__package__", "__cached__", "__file__"}
 
 
 def _call_name(node: ast.AST) -> Optional[str]:
@@ -34,7 +35,13 @@ def _validate_python_code(code: str) -> Optional[str]:
         return f"Syntax error: {exc}"
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
+        if isinstance(node, ast.Name):
+            if node.id in BLOCKED_NAMES:
+                return f"Blocked name: {node.id}"
+        elif isinstance(node, ast.Attribute):
+            if node.attr.startswith("__"):
+                return f"Blocked attribute: {node.attr}"
+        elif isinstance(node, ast.Import):
             for alias in node.names:
                 root = alias.name.split(".")[0]
                 if root in BLOCKED_MODULES:
@@ -137,13 +144,16 @@ async def _code_execute(code: str, language: str = "python") -> str:
         return blocked
     def _run():
         with tempfile.TemporaryDirectory(prefix="superai_tool_") as temp_dir:
+            env = os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"
+            env["PYTHONNOUSERSITE"] = "1"
             r = subprocess.run(
                 [sys.executable, "-I", "-c", code],
                 capture_output=True,
                 text=True,
                 timeout=10,
                 cwd=temp_dir,
-                env={"PYTHONIOENCODING": "utf-8", "PYTHONNOUSERSITE": "1"},
+                env=env,
             )
         out, err = r.stdout or "", r.stderr or ""
         if err: return f"Output:\n{out}\nErrors:\n{err}" if out else f"Error:\n{err}"

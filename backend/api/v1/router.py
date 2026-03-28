@@ -59,6 +59,31 @@ if _feature_enabled("enable_feedback", "enable_rlhf"):
 
     api_router.include_router(feedback.router, prefix="/feedback", tags=["Feedback"])
 
+if _feature_enabled("enable_reflection", "enable_self_improvement", "enable_model_registry", "enable_distributed"):
+    from backend.api.v1 import intelligence
+
+    api_router.include_router(intelligence.router, prefix="/intelligence", tags=["Intelligence"])
+
+if _feature_enabled("enable_personality", "enable_parallel_agents"):
+    from backend.api.v1 import personality_api
+
+    api_router.include_router(personality_api.router, prefix="/personality", tags=["Personality"])
+
+if _feature_enabled("enable_rlhf"):
+    from backend.api.v1 import rlhf_api
+
+    api_router.include_router(rlhf_api.router, prefix="/rlhf", tags=["RLHF"])
+
+if _feature_enabled("enable_tools"):
+    from backend.api.v1 import tools_api
+
+    api_router.include_router(tools_api.router, prefix="/tools", tags=["Tools"])
+
+if _feature_enabled("enable_consensus"):
+    from backend.api.v1 import consensus_api
+
+    api_router.include_router(consensus_api.router, prefix="/consensus", tags=["Consensus"])
+
 if _feature_enabled("enable_workflow"):
     from backend.api.v1 import workflow_api
 

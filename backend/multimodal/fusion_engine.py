@@ -115,14 +115,31 @@ class MultimodalFusionEngine:
         image_weight: float,
         audio_weight: float,
     ) -> str:
-        parts = []
-        if text:
-            parts.append(f"[Text weight={text_weight:.2f}] User text: {text}")
-        if image_desc:
-            parts.append(f"[Image weight={image_weight:.2f}] Image content: {image_desc}")
-        if audio_transcript:
-            parts.append(f"[Audio weight={audio_weight:.2f}] Spoken input: {audio_transcript}")
-        return "\n".join(parts) or text
+        sources = [
+            ("Text", text_weight, f"[Text weight={text_weight:.2f}] User text: {self._weighted_excerpt(text, text_weight, 800)}"),
+            (
+                "Image",
+                image_weight,
+                f"[Image weight={image_weight:.2f}] Image content: {self._weighted_excerpt(image_desc, image_weight, 600)}",
+            ),
+            (
+                "Audio",
+                audio_weight,
+                f"[Audio weight={audio_weight:.2f}] Spoken input: {self._weighted_excerpt(audio_transcript, audio_weight, 500)}",
+            ),
+        ]
+        active = [(name, weight, content) for name, weight, content in sources if weight > 0 and content.split(": ", 1)[-1].strip()]
+        if not active:
+            return text
+
+        ordered = sorted(active, key=lambda item: item[1], reverse=True)
+        priority = " > ".join(f"{name}({weight:.2f})" for name, weight, _ in ordered)
+        parts = [
+            "Fusion policy: when modalities conflict, trust higher-weighted modalities first.",
+            f"Priority order: {priority}",
+        ]
+        parts.extend(content for _, _, content in ordered)
+        return "\n".join(parts)
 
     def _resolve_weights(self, *, has_image: bool, has_audio: bool) -> tuple[float, float, float]:
         text_weight = float(getattr(self.cfg, "text_weight", 0.6))
@@ -138,6 +155,13 @@ class MultimodalFusionEngine:
         if total <= 0:
             return 1.0, 0.0, 0.0
         return text_weight / total, image_weight / total, audio_weight / total
+
+    @staticmethod
+    def _weighted_excerpt(content: str, weight: float, base_limit: int) -> str:
+        if not content:
+            return ""
+        limit = max(120, int(base_limit * max(weight, 0.2)))
+        return content[:limit]
 
     async def _describe_image(self, image_b64: str, question: str) -> str:
         try:
