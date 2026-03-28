@@ -6,7 +6,7 @@ Built-in tools: web_search, calculator, code_execute, wikipedia, weather, file_r
 Security: code_execute uses subprocess with 10s timeout + blocked dangerous imports
 """
 from __future__ import annotations
-import asyncio, ast, math, re, subprocess, sys, time, urllib.parse, urllib.request
+import asyncio, ast, math, re, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from loguru import logger
@@ -54,8 +54,9 @@ def _validate_python_code(code: str) -> Optional[str]:
 
 
 class ToolExecutor:
-    def __init__(self, registry: ToolRegistry) -> None:
+    def __init__(self, registry: ToolRegistry, monitoring=None) -> None:
         self._reg = registry
+        self._monitoring = monitoring
 
     @property
     def MAX_OUT(self) -> int:  # pragma: no cover - compatibility shim
@@ -64,6 +65,9 @@ class ToolExecutor:
     async def execute(self, name: str, args: Dict[str, Any]) -> ToolResult:
         tool = self._reg.get(name)
         if not tool:
+            if self._monitoring:
+                self._monitoring.record_tool(name, False)
+                self._monitoring.record_error("tool_not_found")
             return ToolResult(name, False, "", error=f"Tool '{name}' not found")
         t0 = time.perf_counter()
         try:
@@ -71,12 +75,20 @@ class ToolExecutor:
             ms  = (time.perf_counter()-t0)*1000
             out = str(out)
             if len(out) > MAX_OUT: out = out[:MAX_OUT] + "... [truncated]"
+            if self._monitoring:
+                self._monitoring.record_tool(name, True)
             return ToolResult(name, True, out, exec_ms=round(ms,1))
         except asyncio.TimeoutError:
+            if self._monitoring:
+                self._monitoring.record_tool(name, False)
+                self._monitoring.record_error("tool_timeout")
             return ToolResult(name, False, "", error=f"Timeout after {tool.timeout_s}s",
                               exec_ms=(time.perf_counter()-t0)*1000)
         except Exception as e:
             logger.warning("Tool failed", tool=name, error=str(e))
+            if self._monitoring:
+                self._monitoring.record_tool(name, False)
+                self._monitoring.record_error("tool_error")
             return ToolResult(name, False, "", error=str(e)[:200],
                               exec_ms=(time.perf_counter()-t0)*1000)
 
@@ -124,8 +136,15 @@ async def _code_execute(code: str, language: str = "python") -> str:
     if blocked:
         return blocked
     def _run():
-        r = subprocess.run([sys.executable,"-c",code],
-            capture_output=True, text=True, timeout=10)
+        with tempfile.TemporaryDirectory(prefix="superai_tool_") as temp_dir:
+            r = subprocess.run(
+                [sys.executable, "-I", "-c", code],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                cwd=temp_dir,
+                env={"PYTHONIOENCODING": "utf-8", "PYTHONNOUSERSITE": "1"},
+            )
         out, err = r.stdout or "", r.stderr or ""
         if err: return f"Output:\n{out}\nErrors:\n{err}" if out else f"Error:\n{err}"
         return out or "(No output)"
@@ -162,9 +181,9 @@ async def _weather(city: str) -> str:
 
 
 async def _file_read(filename: str) -> str:
-    safe_dir = Path("data/uploads/")
-    target   = (safe_dir / Path(filename).name).resolve()
-    if not target.is_relative_to(safe_dir.resolve()):
+    safe_dir = (Path(__file__).resolve().parents[2] / "data" / "uploads").resolve()
+    target = (safe_dir / Path(filename).name).resolve()
+    if not target.is_relative_to(safe_dir):
         return "Access denied."
     if not target.exists(): return f"File not found: {filename}"
     try:

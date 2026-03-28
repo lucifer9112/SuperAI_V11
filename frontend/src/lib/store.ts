@@ -1,6 +1,6 @@
 /**
- * SuperAI V9 — frontend/src/lib/store.ts
- * Global state with Zustand. Chat + Agents + Settings + System.
+ * SuperAI V11 - frontend/src/lib/store.ts
+ * Global state with Zustand. Chat + agents + settings + system.
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -18,7 +18,7 @@ export interface Message {
   latency_ms?: number;
   response_id?: string;
   isStreaming?: boolean;
-  feedback?:   number;   // V9: user rating 1-5
+  feedback?:   number;   // user rating 1-5
 }
 
 // ── Chat ──────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ export const useSettingsStore = create<SettingsStore>()(
   persist(
     (set) => ({
       theme:            "dark",
-      streamingEnabled: true,
+      streamingEnabled: false,
       voiceEnabled:     false,
       soundFx:          true,
       temperature:      0.7,

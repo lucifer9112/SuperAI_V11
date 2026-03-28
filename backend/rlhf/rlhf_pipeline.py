@@ -81,46 +81,63 @@ class FeedbackToRLHFConverter:
                             pairs.append({"prompt": h["u"], "chosen": h["a"],
                                           "rejected": l["a"], "reward_diff": 2.0})
 
-                    # Bootstrap: self-truncation pairs
                     if len(pairs) < min_pairs:
-                        for t in hi_turns[: min_pairs - len(pairs)]:
-                            if len(t["a"].split()) >= 20:
-                                words = t["a"].split()
-                                pairs.append({"prompt": t["u"], "chosen": t["a"],
-                                              "rejected": " ".join(words[:len(words)//2]),
-                                              "reward_diff": 1.0})
+                        logger.info(
+                            "RLHF natural pairs below target; skipping synthetic truncation bootstrap",
+                            available=len(pairs),
+                            requested=min_pairs,
+                        )
         except Exception as e:
             logger.warning("RLHF pair build failed", error=str(e))
         logger.info("RLHF pairs ready", count=len(pairs))
         return pairs
 
     async def _fetch_recent_turns(self, conn, limit: int, reverse: bool = False) -> List[Dict]:
+        table, user_col, assistant_col, ts_col = await self._conversation_schema(conn)
         order = "DESC" if not reverse else "ASC"
         cur = await conn.execute(
-            f"SELECT user_msg, assistant_msg FROM conversation_turns "
-            f"WHERE assistant_msg != '' ORDER BY timestamp {order} LIMIT ?", (limit*2,))
+            f"SELECT {user_col} AS user_text, {assistant_col} AS assistant_text FROM {table} "
+            f"WHERE {assistant_col} != '' ORDER BY {ts_col} {order} LIMIT ?",
+            (limit * 2,),
+        )
         rows = await cur.fetchall()
-        return [{"u": r["user_msg"], "a": r["assistant_msg"]}
-                for r in rows if r["user_msg"] and r["assistant_msg"]]
+        return [{"u": r["user_text"], "a": r["assistant_text"]}
+                for r in rows if r["user_text"] and r["assistant_text"]]
 
     async def _fetch_turns_by_response_ids(self, conn, response_ids: List[str]) -> List[Dict]:
         ordered_ids = [rid for rid in response_ids if rid]
         if not ordered_ids:
             return []
 
+        table, user_col, assistant_col, _ = await self._conversation_schema(conn)
         placeholders = ",".join("?" for _ in ordered_ids)
         cur = await conn.execute(
-            f"SELECT response_id, user_msg, assistant_msg FROM conversation_turns "
-            f"WHERE response_id IN ({placeholders}) AND assistant_msg != ''",
+            f"SELECT response_id, {user_col} AS user_text, {assistant_col} AS assistant_text FROM {table} "
+            f"WHERE response_id IN ({placeholders}) AND {assistant_col} != ''",
             ordered_ids,
         )
         rows = await cur.fetchall()
         by_id = {
-            r["response_id"]: {"u": r["user_msg"], "a": r["assistant_msg"]}
+            r["response_id"]: {"u": r["user_text"], "a": r["assistant_text"]}
             for r in rows
-            if r["response_id"] and r["user_msg"] and r["assistant_msg"]
+            if r["response_id"] and r["user_text"] and r["assistant_text"]
         }
         return [by_id[rid] for rid in ordered_ids if rid in by_id]
+
+    async def _conversation_schema(self, conn) -> tuple[str, str, str, str]:
+        candidates = [
+            ("simple_conversation_turns", "user_text", "assistant_text", "created_at"),
+            ("conversation_turns", "user_msg", "assistant_msg", "timestamp"),
+        ]
+        for table, user_col, assistant_col, ts_col in candidates:
+            try:
+                await conn.execute(
+                    f"SELECT {user_col}, {assistant_col}, {ts_col} FROM {table} LIMIT 1"
+                )
+                return table, user_col, assistant_col, ts_col
+            except Exception:
+                continue
+        raise RuntimeError("No supported conversation turns table found")
 
 
 class DPOTrainer:

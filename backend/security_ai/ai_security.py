@@ -82,6 +82,7 @@ class SessionProfile:
     threat_count:    int           = 0
     request_times:   deque         = field(default_factory=lambda: deque(maxlen=50))
     flagged:         bool          = False
+    last_seen:       float         = field(default_factory=time.time)
 
 
 class EmbeddingThreatDetector:
@@ -208,15 +209,20 @@ class BehavioralMonitor:
     Flags sessions with high threat rate or rapid-fire requests.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, session_ttl_s: int = 3600, max_sessions: int = 5000) -> None:
         self._profiles: Dict[str, SessionProfile] = {}
+        self._session_ttl_s = max(60, session_ttl_s)
+        self._max_sessions = max(1, max_sessions)
 
     def record(self, session_id: str, is_threat: bool) -> SessionProfile:
+        now = time.time()
+        self._prune(now)
         if session_id not in self._profiles:
             self._profiles[session_id] = SessionProfile(session_id=session_id)
         p = self._profiles[session_id]
         p.request_count += 1
-        p.request_times.append(time.time())
+        p.request_times.append(now)
+        p.last_seen = now
         if is_threat:
             p.threat_count += 1
 
@@ -228,8 +234,28 @@ class BehavioralMonitor:
         return p
 
     def is_session_flagged(self, session_id: str) -> bool:
+        self._prune()
         p = self._profiles.get(session_id)
         return p.flagged if p else False
+
+    def _prune(self, now: Optional[float] = None) -> None:
+        now = now or time.time()
+        stale = [
+            sid for sid, profile in self._profiles.items()
+            if (now - profile.last_seen) > self._session_ttl_s
+        ]
+        for sid in stale:
+            self._profiles.pop(sid, None)
+
+        if len(self._profiles) <= self._max_sessions:
+            return
+
+        overflow = sorted(
+            self._profiles.items(),
+            key=lambda item: item[1].last_seen,
+        )[: len(self._profiles) - self._max_sessions]
+        for sid, _ in overflow:
+            self._profiles.pop(sid, None)
 
 
 # ── Main AI Security Engine ───────────────────────────────────────
@@ -241,16 +267,20 @@ class AISecurityEngine:
     V9 regex checks are still run first (fast path).
     """
 
-    def __init__(self, cfg) -> None:
+    def __init__(self, cfg, monitoring=None) -> None:
         self.cfg        = cfg
         self._enabled   = getattr(cfg, "enabled", True)
         self._block     = getattr(cfg, "block_on_anomaly", True)
         threshold       = getattr(cfg, "threat_similarity_threshold", 0.82)
         anomaly_enabled = getattr(cfg, "anomaly_detection", True)
+        self._monitoring = monitoring
 
         self._emb_detector  = EmbeddingThreatDetector(threshold=threshold)
         self._anom_detector = AnomalyDetector() if anomaly_enabled else None
-        self._behavior      = BehavioralMonitor()
+        self._behavior      = BehavioralMonitor(
+            session_ttl_s=int(getattr(cfg, "session_ttl_s", 3600)),
+            max_sessions=int(getattr(cfg, "max_sessions", 5000)),
+        )
 
         log_dir = getattr(cfg, "anomaly_log_path", "data/security_logs/")
         Path(log_dir).mkdir(parents=True, exist_ok=True)
@@ -275,6 +305,8 @@ class AISecurityEngine:
 
         # Session already flagged?
         if session_id and self._behavior.is_session_flagged(session_id):
+            if self._monitoring:
+                self._monitoring.record_security_event("flagged_session", blocked=self._block)
             return ThreatAssessment(
                 is_threat=True, threat_level="high",
                 threat_type="flagged_session", confidence=0.9,
@@ -301,6 +333,8 @@ class AISecurityEngine:
         # Log threats
         if is_threat:
             self._log_threat(prompt[:200], confidence, match, session_id)
+            if self._monitoring:
+                self._monitoring.record_security_event(match or "threat", blocked=self._block)
 
         level = self._threat_level(confidence)
         return ThreatAssessment(
@@ -313,6 +347,7 @@ class AISecurityEngine:
         )
 
     def stats(self) -> Dict:
+        self._behavior._prune()
         flagged = sum(1 for p in self._behavior._profiles.values() if p.flagged)
         total   = len(self._behavior._profiles)
         return {

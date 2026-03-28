@@ -95,10 +95,13 @@ FORMAL_INDICATORS = ["please", "could you", "kindly", "I would like", "regarding
 class UserStyleAdapter:
     """Learns user communication style from messages."""
 
-    def __init__(self) -> None:
+    def __init__(self, session_ttl_s: int = 3600, max_sessions: int = 2000) -> None:
         self._profiles: Dict[str, UserProfile] = {}
+        self._session_ttl_s = max(60, session_ttl_s)
+        self._max_sessions = max(1, max_sessions)
 
     def update(self, session_id: str, message: str) -> UserProfile:
+        self.prune()
         if session_id not in self._profiles:
             self._profiles[session_id] = UserProfile(session_id=session_id)
 
@@ -136,7 +139,27 @@ class UserStyleAdapter:
         return p
 
     def get_profile(self, session_id: str) -> Optional[UserProfile]:
+        self.prune()
         return self._profiles.get(session_id)
+
+    def prune(self, now: Optional[float] = None) -> None:
+        now = now or time.time()
+        stale = [
+            sid for sid, profile in self._profiles.items()
+            if (now - profile.last_updated) > self._session_ttl_s
+        ]
+        for sid in stale:
+            self._profiles.pop(sid, None)
+
+        if len(self._profiles) <= self._max_sessions:
+            return
+
+        overflow = sorted(
+            self._profiles.items(),
+            key=lambda item: item[1].last_updated,
+        )[: len(self._profiles) - self._max_sessions]
+        for sid, _ in overflow:
+            self._profiles.pop(sid, None)
 
 
 # ── Response personalizer ─────────────────────────────────────────
@@ -201,6 +224,8 @@ class PersonalityEngine:
         self.cfg        = cfg
         self._enabled   = getattr(cfg, "enabled", True)
         traits          = getattr(cfg, "traits", {})
+        self._session_ttl_s = max(60, int(getattr(cfg, "session_ttl_s", 3600)))
+        self._max_sessions = max(1, int(getattr(cfg, "max_sessions", 2000)))
 
         self._profile   = PersonalityProfile(
             name       = getattr(cfg, "name", "SuperAI"),
@@ -211,7 +236,10 @@ class PersonalityEngine:
             caution    = traits.get("caution",    0.5),
         )
         self._emotions: Dict[str, EmotionalState] = {}
-        self._adapter   = UserStyleAdapter()
+        self._adapter   = UserStyleAdapter(
+            session_ttl_s=self._session_ttl_s,
+            max_sessions=self._max_sessions,
+        )
         self._personalizer = ResponsePersonalizer()
 
         logger.info("PersonalityEngine ready",
@@ -219,6 +247,7 @@ class PersonalityEngine:
 
     def update_session(self, session_id: str, user_message: str, emotion: str) -> None:
         """Called on every user message."""
+        self._prune_session_state()
         self._adapter.update(session_id, user_message)
         if session_id not in self._emotions:
             self._emotions[session_id] = EmotionalState()
@@ -230,6 +259,7 @@ class PersonalityEngine:
         if not self._enabled:
             return response
 
+        self._prune_session_state()
         emotion      = self._emotions.get(session_id, EmotionalState())
         user_profile = self._adapter.get_profile(session_id)
 
@@ -239,6 +269,7 @@ class PersonalityEngine:
 
     def get_system_prompt_addon(self, session_id: str) -> str:
         """Generate personality-aware system prompt suffix."""
+        self._prune_session_state()
         user_profile = self._adapter.get_profile(session_id)
         if not user_profile:
             return ""
@@ -257,6 +288,7 @@ class PersonalityEngine:
         return " ".join(parts)
 
     def session_emotion(self, session_id: str) -> str:
+        self._prune_session_state()
         state = self._emotions.get(session_id)
         return state.current_emotion if state else "neutral"
 
@@ -269,3 +301,24 @@ class PersonalityEngine:
             "creativity": self._profile.creativity,
             "caution":    self._profile.caution,
         }
+
+    def _prune_session_state(self, now: Optional[float] = None) -> None:
+        now = now or time.time()
+        self._adapter.prune(now)
+
+        stale = [
+            sid for sid, state in self._emotions.items()
+            if (now - state.last_updated) > self._session_ttl_s
+        ]
+        for sid in stale:
+            self._emotions.pop(sid, None)
+
+        if len(self._emotions) <= self._max_sessions:
+            return
+
+        overflow = sorted(
+            self._emotions.items(),
+            key=lambda item: item[1].last_updated,
+        )[: len(self._emotions) - self._max_sessions]
+        for sid, _ in overflow:
+            self._emotions.pop(sid, None)

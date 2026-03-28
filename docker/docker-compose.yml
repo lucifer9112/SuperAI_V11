@@ -1,10 +1,9 @@
 # ================================================================
-# SuperAI V12 - docker/docker-compose.yml
-# Services: backend, frontend, redis, prometheus, grafana, nginx
+# SuperAI V11 - docker/docker-compose.yml
+# Services: backend, frontend, prometheus, grafana, nginx
 # ================================================================
 
 x-env: &env
-  REDIS_URL: redis://redis:6379/0
   LOGGING__LEVEL: INFO
   LOGGING__FORMAT: json
   SERVER__PORT: "8000"
@@ -32,9 +31,6 @@ services:
       HF_TOKEN: ${HF_TOKEN:-}
     env_file:
       - ../.env
-    depends_on:
-      redis:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -58,23 +54,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    networks:
-      - superai_net
-
-  redis:
-    image: redis:7-alpine
-    container_name: superai_v12_redis
-    <<: *restart
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - superai_net
 
@@ -123,7 +102,6 @@ services:
 volumes:
   v12_data:
   v12_logs:
-  redis_data:
   prometheus_data:
   grafana_data:
   hf_cache:

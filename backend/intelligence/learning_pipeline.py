@@ -61,10 +61,11 @@ class DatasetBuilder:
                         (self.min_score,)
                     )
                     rated = await cur.fetchall()
+                    table, user_col, assistant_col = await self._conversation_schema(conv_db)
 
                     for row in rated:
                         c = await conv_db.execute(
-                            "SELECT user_msg, assistant_msg FROM conversation_turns "
+                            f"SELECT {user_col} AS user_text, {assistant_col} AS assistant_text FROM {table} "
                             "WHERE response_id = ? LIMIT 1",
                             (row["response_id"],),
                         )
@@ -72,9 +73,9 @@ class DatasetBuilder:
                         if not turn:
                             continue
                         examples.append({
-                            "instruction": turn["user_msg"],
+                            "instruction": turn["user_text"],
                             "input": "",
-                            "output":      turn["assistant_msg"],
+                            "output":      turn["assistant_text"],
                             "score":       row["score"],
                             "timestamp":   datetime.utcnow().isoformat(),
                         })
@@ -93,6 +94,19 @@ class DatasetBuilder:
             logger.info("Dataset built", examples=len(examples), path=str(path))
 
         return len(examples)
+
+    async def _conversation_schema(self, conn) -> tuple[str, str, str]:
+        candidates = [
+            ("simple_conversation_turns", "user_text", "assistant_text"),
+            ("conversation_turns", "user_msg", "assistant_msg"),
+        ]
+        for table, user_col, assistant_col in candidates:
+            try:
+                await conn.execute(f"SELECT {user_col}, {assistant_col} FROM {table} LIMIT 1")
+                return table, user_col, assistant_col
+            except Exception:
+                continue
+        raise RuntimeError("No supported conversation turns table found")
 
     def get_all_examples(self) -> List[Dict]:
         """Load all collected JSONL examples."""

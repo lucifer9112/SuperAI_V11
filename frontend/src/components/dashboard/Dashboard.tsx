@@ -81,7 +81,7 @@ export function Dashboard() {
         )}
       </div>
 
-      {/* Feedback stats (V9 new) */}
+      {/* Feedback stats */}
       {fbStats && (
         <div className="rounded-xl p-3 border" style={{ background: "var(--bg-card)", borderColor: "var(--border)" }}>
           <div className="flex items-center gap-2 mb-2">

@@ -58,7 +58,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.server.cors_origins,
-        allow_credentials=True,
+        allow_credentials=settings.server.cors_origins != ["*"],
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -66,8 +66,10 @@ def create_app() -> FastAPI:
     app.exception_handler(Exception)(_unhandled_error)
 
     from backend.api.v1.router import api_router
+    from backend.api.ws.chat_ws import ws_router
 
     app.include_router(api_router, prefix="/api/v1")
+    app.include_router(ws_router, prefix="/ws")
 
     @app.get("/", include_in_schema=False)
     async def root() -> RedirectResponse:

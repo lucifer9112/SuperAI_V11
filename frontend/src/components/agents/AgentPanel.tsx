@@ -41,7 +41,7 @@ export function AgentPanel() {
       <div>
         <h2 className="text-base font-semibold" style={{ color: "var(--text)" }}>Autonomous Agent</h2>
         <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-          V9: multi-agent shared context bus enabled
+          V11: multi-agent shared context bus enabled
         </p>
       </div>
 

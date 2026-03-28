@@ -1,34 +1,81 @@
 #!/usr/bin/env python3
 """
-SuperAI V11 - scripts/run_colab_v11.py
+SuperAI V11 Colab launcher for the simplified runtime.
 
-One-command Colab launcher.
-
-Usage:
-  !python scripts/run_colab_v11.py --token YOUR_NGROK_TOKEN
-
-Options:
-  --token TOKEN     ngrok authtoken
-  --model MODEL     override default model
-  --no-install      skip pip install
-  --safe-mode       disable V11 features and skip optional heavy installs
-  --features F1,S2  enable specific features only
+Examples:
+  python scripts/run_colab_v11.py --token YOUR_NGROK_TOKEN
+  python scripts/run_colab_v11.py --token YOUR_NGROK_TOKEN --with-frontend
+  python scripts/run_colab_v11.py --token YOUR_NGROK_TOKEN --mode advanced --features F5,S2
 """
+
+from __future__ import annotations
 
 import argparse
 import importlib
 import os
+import shutil
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Iterable
 
 import yaml
 
 PROJECT = Path(__file__).parent.parent.resolve()
+FRONTEND_DIR = PROJECT / "frontend"
+CONFIG_PATH = PROJECT / "config" / "config.yaml"
 DATA = Path("/content/superai_v11_data")
-LOG = DATA / "logs" / "server.log"
+LOG_DIR = DATA / "logs"
+BACKEND_LOG = LOG_DIR / "backend.log"
+FRONTEND_LOG = LOG_DIR / "frontend.log"
+
+KNOWN_FEATURE_KEYS = {
+    "enable_workflow",
+    "enable_skills",
+    "enable_context",
+    "enable_judge",
+    "enable_cognitive",
+    "enable_reflection",
+    "enable_learning",
+    "enable_advanced_memory",
+    "enable_parallel_agents",
+    "enable_rag",
+    "enable_self_improvement",
+    "enable_model_registry",
+    "enable_ai_security",
+    "enable_multimodal",
+    "enable_distributed",
+    "enable_personality",
+    "enable_rlhf",
+    "enable_tools",
+    "enable_consensus",
+    "enable_code_review",
+    "enable_debugging",
+    "enable_voice",
+    "enable_vision",
+    "enable_feedback",
+    "enable_agent",
+}
+
+FEATURE_ID_MAP = {
+    "F1": "enable_reflection",
+    "F2": "enable_learning",
+    "F3": "enable_advanced_memory",
+    "F4": "enable_parallel_agents",
+    "F5": "enable_rag",
+    "F6": "enable_self_improvement",
+    "F7": "enable_model_registry",
+    "F8": "enable_ai_security",
+    "F9": "enable_multimodal",
+    "F10": "enable_distributed",
+    "F11": "enable_workflow",
+    "S1": "enable_rlhf",
+    "S2": "enable_tools",
+    "S3": "enable_consensus",
+}
 
 
 def p_ok(message: str) -> None:
@@ -45,7 +92,7 @@ def p_warn(message: str) -> None:
 
 def p_fail(message: str) -> None:
     print(f"  \033[31mFAIL {message}\033[0m")
-    sys.exit(1)
+    raise SystemExit(1)
 
 
 def p_head(message: str) -> None:
@@ -53,405 +100,395 @@ def p_head(message: str) -> None:
     print(f"\n\033[1;36m{line}\n  {message}\n{line}\033[0m")
 
 
-def parse_args():
-    parser = argparse.ArgumentParser()
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Launch SuperAI V11 on Google Colab.")
     parser.add_argument("--token", default=os.getenv("NGROK_TOKEN", ""))
     parser.add_argument("--port", default=8000, type=int)
-    parser.add_argument("--model", default="TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+    parser.add_argument("--frontend-port", default=3000, type=int)
+    parser.add_argument("--model", default="Qwen/Qwen2.5-0.5B-Instruct")
+    parser.add_argument("--mode", choices=["minimal", "advanced"], default="minimal")
+    parser.add_argument("--features", default="", help="Comma-separated feature IDs or gate names")
+    parser.add_argument("--with-frontend", action="store_true", help="Start the Next.js frontend too")
+    parser.add_argument(
+        "--enable-advanced-tabs",
+        action="store_true",
+        help="Expose advanced frontend tabs when running the frontend",
+    )
     parser.add_argument("--no-install", action="store_true")
     parser.add_argument(
         "--safe-mode",
         action="store_true",
-        help="Disable V10+V11 features and skip optional heavy installs",
-    )
-    parser.add_argument(
-        "--features",
-        default="",
-        help="Comma-separated feature IDs e.g. F1,F5,S1,S2",
+        help="Backward-compatible alias for minimal mode with all advanced gates disabled",
     )
     return parser.parse_args()
 
 
-def check_gpu() -> str:
-    result = subprocess.run(
-        ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
-        capture_output=True,
+def run(cmd: list[str], *, cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+    completed = subprocess.run(
+        cmd,
+        cwd=str(cwd or PROJECT),
         text=True,
+        capture_output=True,
     )
-    if result.returncode == 0:
-        p_ok(f"GPU: {result.stdout.strip()}")
-        return "cuda"
-    p_warn("No GPU detected - using CPU mode")
+    if check and completed.returncode != 0:
+        p_fail(
+            f"Command failed: {' '.join(cmd)}\n"
+            f"stdout:\n{completed.stdout[-1200:]}\n"
+            f"stderr:\n{completed.stderr[-1200:]}"
+        )
+    return completed
+
+
+def _tail(path: Path, lines: int = 80) -> str:
+    if not path.exists():
+        return ""
+    return "\n".join(path.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:])
+
+
+def _wait_for_http(url: str, *, timeout_seconds: int = 120, expected_fragment: str | None = None) -> None:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=5) as response:
+                text = response.read().decode("utf-8", errors="replace")
+                if expected_fragment and expected_fragment not in text:
+                    time.sleep(2)
+                    continue
+                return
+        except urllib.error.URLError:
+            time.sleep(2)
+    p_fail(f"Timed out waiting for {url}")
+
+
+def check_gpu() -> str:
+    p_head("SuperAI V11 - Colab Launcher")
+    try:
+        result = run(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,memory.total",
+                "--format=csv,noheader",
+            ],
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            gpu_line = result.stdout.strip().splitlines()[0]
+            p_ok(f"GPU: {gpu_line}")
+            return "cuda"
+    except Exception:
+        pass
+
+    p_warn("GPU not detected, falling back to CPU")
     return "cpu"
 
 
-def _run_command(command: list[str], fatal: bool, label: str):
-    result = subprocess.run(command, capture_output=True, text=True)
-    if result.returncode == 0:
-        return result
-
-    error_text = (result.stderr or result.stdout or "").strip()
-    error_text = error_text[-1200:] if error_text else "No output captured."
-    if fatal:
-        p_fail(f"{label} failed:\n{error_text}")
-    p_warn(f"{label} failed (optional):\n{error_text}")
-    return result
-
-
-def _pip_install(args: list[str], label: str, fatal: bool) -> bool:
-    result = _run_command([sys.executable, "-m", "pip", "install", "-q", *args], fatal, label)
-    if result.returncode == 0:
-        p_ok(label)
-        return True
-    return False
-
-
-def install_deps(safe_mode: bool) -> None:
+def install_deps(_safe_mode: bool = False) -> None:
     p_head("Installing dependencies")
-
-    _run_command(["apt-get", "update", "-qq"], fatal=True, label="apt-get update")
-    _run_command(
-        ["apt-get", "install", "-y", "-qq", "ffmpeg", "libsndfile1"],
-        fatal=True,
-        label="System package install",
-    )
-    p_ok("System packages")
-
-    _pip_install(["--upgrade", "pip", "setuptools", "wheel"], "Build tooling", fatal=True)
-    _pip_install(
-        ["-r", str(PROJECT / "requirements.txt")],
-        "Core Python packages",
-        fatal=True,
-    )
-    _pip_install(
-        ["pyngrok==7.2.0", "nest-asyncio==1.6.0"],
-        "Tunnel packages",
-        fatal=True,
-    )
-
-    if safe_mode:
-        p_info("Safe mode selected - skipping optional Colab packages")
-        return
-
-    optional_groups = [
-        ("Vector packages", ["faiss-cpu==1.8.0"]),
-        (
-            "Voice packages",
-            ["openai-whisper==20240930", "gtts==2.5.3", "soundfile==0.12.1"],
-        ),
-        (
-            "Document packages",
-            ["pdfplumber==0.11.4", "python-docx==1.1.2", "openpyxl==3.1.5"],
-        ),
-    ]
-
-    for label, packages in optional_groups:
-        _pip_install(packages, label, fatal=False)
-
-    if sys.version_info < (3, 12):
-        _pip_install(["bitsandbytes==0.43.3"], "Quantization package", fatal=False)
-    else:
-        p_warn("Skipping bitsandbytes on Python 3.12+ because Colab wheels are unreliable")
+    python = sys.executable
+    run([python, "-m", "pip", "install", "-q", "--upgrade", "pip", "setuptools", "wheel"])
+    p_ok("Build tooling")
+    run([python, "-m", "pip", "install", "-q", "-r", str(PROJECT / "requirements-colab.txt")])
+    p_ok("Core Python packages")
 
 
 def verify_runtime_deps() -> None:
-    required_modules = [
-        "fastapi",
-        "uvicorn",
-        "yaml",
-        "loguru",
-        "aiosqlite",
-        "pydantic_settings",
-        "httpx",
-        "prometheus_client",
-        "pyngrok",
-        "transformers",
-        "torch",
-    ]
-    missing = []
-
-    for module_name in required_modules:
-        try:
-            importlib.import_module(module_name)
-        except Exception as exc:  # pragma: no cover - defensive import guard
-            missing.append(f"{module_name}: {exc}")
-
-    if missing:
-        joined = "\n".join(f"  - {item}" for item in missing)
-        p_fail(f"Runtime dependency check failed:\n{joined}")
-
+    modules = {
+        "fastapi": "fastapi",
+        "uvicorn": "uvicorn",
+        "requests": "requests",
+        "yaml": "yaml",
+        "pydantic_settings": "pydantic_settings",
+        "pyngrok": "pyngrok",
+    }
+    for display_name, module_name in modules.items():
+        importlib.import_module(module_name)
     p_ok("Runtime imports verified")
 
 
 def create_dirs() -> None:
-    for directory in [
-        DATA / "logs",
-        DATA / "uploads",
-        DATA / "vector_db",
-        DATA / "training",
-        DATA / "rlhf_checkpoints",
-        DATA / "reward_model",
-        DATA / "improvement_logs",
-        DATA / "security_logs",
-    ]:
-        directory.mkdir(parents=True, exist_ok=True)
+    for path in [DATA, LOG_DIR, DATA / "uploads"]:
+        path.mkdir(parents=True, exist_ok=True)
     p_ok(f"Data dirs: {DATA}")
 
 
-def patch_config(device: str, model: str, port: int, safe_mode: bool, features: list[str]) -> None:
-    p_head("Patching config.yaml for Colab")
-    cfg_path = PROJECT / "config" / "config.yaml"
-    with open(cfg_path, encoding="utf-8") as fh:
-        cfg = yaml.safe_load(fh)
+def _normalize_feature_flags(items: Iterable[str]) -> set[str]:
+    enabled: set[str] = set()
+    for raw_item in items:
+        item = raw_item.strip()
+        if not item:
+            continue
+        upper = item.upper()
+        lowered = item.lower()
 
+        if upper in FEATURE_ID_MAP:
+            enabled.add(FEATURE_ID_MAP[upper])
+            continue
+
+        if item in KNOWN_FEATURE_KEYS:
+            enabled.add(item)
+            continue
+
+        prefixed = f"enable_{lowered}"
+        if prefixed in KNOWN_FEATURE_KEYS:
+            enabled.add(prefixed)
+    return enabled
+
+
+def patch_config(
+    device: str,
+    model: str,
+    port: int,
+    safe_mode: bool,
+    features: list[str],
+    *,
+    mode: str = "minimal",
+) -> None:
+    p_head("Patching config.yaml for Colab")
+    cfg = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+
+    selected_mode = "minimal" if safe_mode else mode
+    cfg["mode"] = selected_mode
+
+    cfg.setdefault("server", {})
     cfg["server"].update(
         {
             "host": "0.0.0.0",
             "port": port,
             "reload": False,
             "workers": 1,
+            "environment": "development",
             "cors_origins": ["*"],
         }
     )
 
+    cfg.setdefault("models", {})
     cfg["models"]["device"] = device
     cfg["models"]["cache_size"] = 1
-    for key in ["chat", "code", "reasoning", "agent", "fast", "reflection"]:
-        cfg["models"]["routing"][key] = model
-    cfg["models"]["routing"]["vision"] = ""
+    cfg["models"]["idle_timeout"] = 300
+    cfg["models"]["primary"] = model
 
-    path_map = {
-        ("memory", "db_path"): str(DATA / "superai_v11.db"),
-        ("memory", "vector_db_path"): str(DATA / "vector_db/"),
-        ("advanced_memory", "episodic_db_path"): str(DATA / "episodic.db"),
-        ("advanced_memory", "semantic_graph_path"): str(DATA / "knowledge_graph.json"),
-        ("feedback", "store_path"): str(DATA / "feedback.db"),
-        ("files", "upload_dir"): str(DATA / "uploads/"),
-        ("logging", "file"): str(DATA / "logs/superai_v11.log"),
-        ("self_improvement", "failure_log_path"): str(DATA / "improvement_logs/"),
-        ("self_improvement", "improvement_db_path"): str(DATA / "improvements.db"),
-        ("ai_security", "anomaly_log_path"): str(DATA / "security_logs/"),
-        ("learning", "dataset_path"): str(DATA / "training/"),
-        ("learning", "lora_output_dir"): str(DATA / "lora_checkpoints/"),
-        ("model_registry", "registry_path"): str(DATA / "model_registry.json"),
-    }
-    if "rlhf" in cfg:
-        cfg["rlhf"]["rlhf_output_dir"] = str(DATA / "rlhf_checkpoints/")
-        cfg["rlhf"]["rlhf_log_db"] = str(DATA / "rlhf_logs.db")
+    cfg.setdefault("memory", {})
+    cfg["memory"]["enabled"] = True
+    cfg["memory"]["backend"] = "sqlite"
+    cfg["memory"]["db_path"] = str(DATA / "superai_v11.db")
 
-    for (section, key), value in path_map.items():
-        if section in cfg and isinstance(cfg[section], dict):
-            cfg[section][key] = value
-
-    if "voice" in cfg and isinstance(cfg["voice"], dict):
-        cfg["voice"]["enabled"] = False
-    cfg["logging"]["format"] = "text"
+    cfg.setdefault("logging", {})
     cfg["logging"]["level"] = "INFO"
+    cfg["logging"]["format"] = "text"
+    cfg["logging"]["file"] = str(LOG_DIR / "superai_v11.log")
 
-    if safe_mode:
-        for section in [
-            "reflection",
-            "learning",
-            "advanced_memory",
-            "parallel_agents",
-            "rag",
-            "self_improvement",
-            "model_registry",
-            "ai_security",
-            "multimodal",
-            "distributed",
-            "rlhf",
-            "tools",
-            "consensus",
-        ]:
-            if section in cfg and isinstance(cfg[section], dict):
-                cfg[section]["enabled"] = False
-        p_warn("Safe mode enabled - V10/V11 advanced features disabled")
-    elif features:
-        feat_map = {
-            "F1": "reflection",
-            "F2": "learning",
-            "F3": "advanced_memory",
-            "F4": "parallel_agents",
-            "F5": "rag",
-            "F6": "self_improvement",
-            "F7": "model_registry",
-            "F8": "ai_security",
-            "F9": "multimodal",
-            "F10": "distributed",
-            "F11": "reflection",
-            "S1": "rlhf",
-            "S2": "tools",
-            "S3": "consensus",
-        }
-        enabled_sections = {feat_map[item] for item in features if item in feat_map}
-        for section in set(feat_map.values()):
-            if section in cfg and isinstance(cfg[section], dict):
-                cfg[section]["enabled"] = section in enabled_sections
-        p_info(f"Features enabled: {', '.join(features)}")
+    cfg.setdefault("features", {})
+    for feature_key in KNOWN_FEATURE_KEYS:
+        cfg["features"].setdefault(feature_key, False)
 
-    with open(cfg_path, "w", encoding="utf-8") as fh:
-        yaml.dump(cfg, fh, default_flow_style=False, sort_keys=False)
+    if selected_mode == "minimal":
+        for feature_key in KNOWN_FEATURE_KEYS:
+            cfg["features"][feature_key] = False
+        p_info("Minimal mode enabled - advanced feature gates disabled")
+    else:
+        enabled_features = _normalize_feature_flags(features)
+        if enabled_features:
+            for feature_key in KNOWN_FEATURE_KEYS:
+                cfg["features"][feature_key] = feature_key in enabled_features
+            p_info(f"Advanced features enabled: {', '.join(sorted(enabled_features))}")
+        else:
+            p_info("Advanced mode enabled - keeping current feature gates")
+
+    CONFIG_PATH.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
 
     (PROJECT / ".env").write_text(
         "\n".join(
             [
                 "SECRET_KEY=colab-v11-key",
+                "SERVER__ENVIRONMENT=development",
+                "SERVER__HOST=0.0.0.0",
+                f"SERVER__PORT={port}",
                 f"MODELS__DEVICE={device}",
                 "LOGGING__LEVEL=INFO",
-                f"SERVER__PORT={port}",
                 "",
             ]
         ),
         encoding="utf-8",
     )
-    p_ok(f"Config patched - device={device}, model={model.split('/')[-1]}")
+    p_ok(f"Config patched - mode={selected_mode}, device={device}, model={model.split('/')[-1]}")
 
 
-def start_server(port: int):
+def start_server(port: int, *, mode: str = "minimal") -> subprocess.Popen[str]:
     p_head("Starting SuperAI V11 backend")
-    subprocess.run(["pkill", "-f", "uvicorn"], capture_output=True)
-    time.sleep(1)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_handle = BACKEND_LOG.open("w", encoding="utf-8")
+    env = {**os.environ, "PYTHONPATH": str(PROJECT)}
+    cmd = [sys.executable, "run.py", "--host", "0.0.0.0", "--port", str(port), "--mode", mode]
 
-    sys.path.insert(0, str(PROJECT))
-    os.chdir(PROJECT)
-    LOG.parent.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(PROJECT),
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
+        text=True,
+        env=env,
+    )
 
-    with open(LOG, "w", encoding="utf-8") as log_fh:
-        proc = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "uvicorn",
-                "backend.main:app",
-                "--host",
-                "0.0.0.0",
-                "--port",
-                str(port),
-                "--log-level",
-                "info",
-                "--no-access-log",
-            ],
-            cwd=str(PROJECT),
-            stdout=log_fh,
-            stderr=subprocess.STDOUT,
-            env={**os.environ, "PYTHONPATH": str(PROJECT)},
-        )
-
-    for attempt in range(90):
-        time.sleep(2)
-        try:
-            urllib.request.urlopen(f"http://localhost:{port}/health", timeout=3)
-            p_ok(f"Server ready after {attempt * 2}s")
-            return proc
-        except Exception:
-            if proc.poll() is not None:
-                server_log = LOG.read_text(encoding="utf-8", errors="ignore")
-                print(server_log[-3000:])
-                p_fail("Server died - check logs above")
-            if attempt % 10 == 9:
-                p_info(f"Still starting... ({attempt * 2}s)")
-
-    p_fail("Server timeout after 180s")
-
-
-def open_tunnel(token: str, port: int) -> str:
-    p_head("Opening ngrok tunnel")
     try:
-        from pyngrok import ngrok
+        _wait_for_http(f"http://127.0.0.1:{port}/health", timeout_seconds=150, expected_fragment="status")
+    except BaseException:
+        if proc.poll() is None:
+            proc.terminate()
+        p_fail(f"Server failed to start\n{_tail(BACKEND_LOG)}")
 
-        if token:
-            ngrok.set_auth_token(token)
-        else:
-            p_warn("No token provided - using anonymous ngrok tunnel")
-        tunnel = ngrok.connect(port, "http")
-        url = tunnel.public_url
-        p_ok(f"Tunnel: {url}")
-        return url
-    except ImportError:
-        p_fail("pyngrok not found - install tunnel packages first")
-    except Exception as exc:
-        p_fail(f"ngrok error: {exc}")
+    p_ok(f"Server ready on http://127.0.0.1:{port}")
+    return proc
 
 
-def print_summary(url: str, port: int) -> None:
-    p_head("SuperAI V11 is LIVE")
-    local_url = f"http://127.0.0.1:{port}"
-    endpoints = [
-        ("Local URL", local_url),
-        ("Local Docs", f"{local_url}/docs"),
-        ("Local Health", f"{local_url}/health"),
-        ("", ""),
-        ("Public URL", url),
-        ("API Docs", f"{url}/docs"),
-        ("Health", f"{url}/health"),
-        ("Chat", f"{url}/api/v1/chat/"),
-        ("", ""),
-        ("-- V11 Step 1 RLHF --", ""),
-        ("RLHF Status", f"{url}/api/v1/rlhf/status"),
-        ("Train DPO", f"{url}/api/v1/rlhf/train/dpo"),
-        ("Train GRPO", f"{url}/api/v1/rlhf/train/grpo"),
-        ("Score Response", f"{url}/api/v1/rlhf/score"),
-        ("", ""),
-        ("-- V11 Step 2 Tools --", ""),
-        ("List Tools", f"{url}/api/v1/tools/list"),
-        ("Call Tools", f"{url}/api/v1/tools/call"),
-        ("Execute Tool", f"{url}/api/v1/tools/execute"),
-        ("", ""),
-        ("-- V11 Step 3 Consensus --", ""),
-        ("Consensus Run", f"{url}/api/v1/consensus/run"),
-        ("Consensus Status", f"{url}/api/v1/consensus/status"),
-        ("", ""),
-        ("System Status", f"{url}/api/v1/system/status"),
-        ("AI Security", f"{url}/api/v1/security/assess"),
-        ("RAG Knowledge", f"{url}/api/v1/knowledge/retrieve"),
-    ]
+def ensure_node() -> None:
+    p_head("Preparing frontend toolchain")
+    node = shutil.which("node")
+    npm = shutil.which("npm")
+    if node and npm:
+        version = run(["node", "--version"]).stdout.strip()
+        p_ok(f"Node.js ready ({version})")
+        return
 
-    for label, value in endpoints:
-        if not label and not value:
-            print()
-        elif not value:
-            print(f"  \033[1;33m{label}\033[0m")
-        else:
-            print(f"  \033[32m{label:20s}\033[0m: {value}")
-
-    print(f"\n  Logs: {LOG}")
-    print("\n  Recommended tests:")
-    print("  1. Manual browser/live testing from your device: use the Public URL above.")
-    print("  2. Automated smoke tests from inside Colab: use the dedicated local smoke runner below.")
-    print("\n  Local smoke test:")
-    print("  python scripts/colab_smoke_v11.py --strict-features")
-    print("\n  Public quick test:")
-    print(f"  curl -X POST {url}/api/v1/chat/ \\")
-    print('    -H "Content-Type: application/json" \\')
-    print('    -d \'{"prompt":"Hello V11! What can you do?","max_tokens":128}\'')
+    p_info("Installing Node.js 20")
+    run(["bash", "-lc", "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -"])
+    run(["apt-get", "install", "-y", "nodejs"])
+    version = run(["node", "--version"]).stdout.strip()
+    p_ok(f"Node.js installed ({version})")
 
 
-def main() -> None:
+def install_frontend_deps() -> None:
+    p_head("Installing frontend dependencies")
+    result = run(["npm", "install", "--no-fund", "--no-audit"], cwd=FRONTEND_DIR, check=False)
+    if result.returncode != 0:
+        p_warn("npm install failed once, retrying with legacy peer deps")
+        run(
+            ["npm", "install", "--legacy-peer-deps", "--no-fund", "--no-audit"],
+            cwd=FRONTEND_DIR,
+        )
+    p_ok("Frontend dependencies installed")
+
+
+def write_frontend_env(api_url: str, *, enable_advanced_tabs: bool) -> None:
+    env_path = FRONTEND_DIR / ".env.local"
+    env_path.write_text(
+        "\n".join(
+            [
+                f"NEXT_PUBLIC_API_URL={api_url}",
+                f"NEXT_PUBLIC_WS_URL={api_url}",
+                f"NEXT_PUBLIC_ENABLE_ADVANCED_TABS={'true' if enable_advanced_tabs else 'false'}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    p_ok("Frontend environment written")
+
+
+def start_frontend(port: int) -> subprocess.Popen[str]:
+    p_head("Starting SuperAI V11 frontend")
+    log_handle = FRONTEND_LOG.open("w", encoding="utf-8")
+    proc = subprocess.Popen(
+        ["npm", "run", "dev", "--", "--hostname", "0.0.0.0", "--port", str(port)],
+        cwd=str(FRONTEND_DIR),
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    try:
+        _wait_for_http(f"http://127.0.0.1:{port}", timeout_seconds=180, expected_fragment="<html")
+    except BaseException:
+        if proc.poll() is None:
+            proc.terminate()
+        p_fail(f"Frontend failed to start\n{_tail(FRONTEND_LOG)}")
+
+    p_ok(f"Frontend ready on http://127.0.0.1:{port}")
+    return proc
+
+
+def _open_tunnel(port: int, label: str):
+    from pyngrok import ngrok
+
+    tunnel = ngrok.connect(port, bind_tls=True)
+    p_ok(f"{label} tunnel: {tunnel.public_url}")
+    return tunnel
+
+
+def main() -> int:
     args = parse_args()
-    p_head("SuperAI V11 - Colab Launcher")
-
     device = check_gpu()
-    features = [item.strip() for item in args.features.split(",") if item.strip()]
+    selected_mode = "minimal" if args.safe_mode else args.mode
+    feature_list = [item.strip() for item in args.features.split(",") if item.strip()]
 
     if not args.no_install:
         install_deps(args.safe_mode)
     verify_runtime_deps()
     create_dirs()
-    patch_config(device, args.model, args.port, args.safe_mode, features)
-    proc = start_server(args.port)
-    url = open_tunnel(args.token, args.port)
-    print_summary(url, args.port)
+    patch_config(device, args.model, args.port, args.safe_mode, feature_list, mode=selected_mode)
 
-    os.environ["SUPERAI_V11_URL"] = url
-    os.environ["SUPERAI_V11_LOCAL_URL"] = f"http://127.0.0.1:{args.port}"
-    p_info("Press Ctrl+C to stop")
+    backend_proc = start_server(args.port, mode=selected_mode)
+    frontend_proc: subprocess.Popen[str] | None = None
+
     try:
-        proc.wait()
+        backend_url = f"http://127.0.0.1:{args.port}"
+        frontend_url = ""
+
+        if args.token:
+            from pyngrok import ngrok
+
+            p_head("Opening ngrok tunnel(s)")
+            ngrok.kill()
+            ngrok.set_auth_token(args.token)
+            backend_url = _open_tunnel(args.port, "Backend").public_url
+
+        if args.with_frontend:
+            ensure_node()
+            if not args.no_install:
+                install_frontend_deps()
+            write_frontend_env(backend_url, enable_advanced_tabs=args.enable_advanced_tabs)
+            frontend_proc = start_frontend(args.frontend_port)
+
+            if args.token:
+                frontend_url = _open_tunnel(args.frontend_port, "Frontend").public_url
+            else:
+                frontend_url = f"http://127.0.0.1:{args.frontend_port}"
+
+        p_head("SuperAI V11 is LIVE")
+        print(f"  Backend URL        : {backend_url}")
+        print(f"  API docs           : {backend_url}/docs")
+        print(f"  Health             : {backend_url}/health")
+        print(f"  Chat API           : {backend_url}/api/v1/chat/")
+        print(f"  Local smoke        : python scripts/colab_smoke_v11.py --no-install --mode {selected_mode}")
+        if frontend_url:
+            print(f"  Frontend URL       : {frontend_url}")
+            print("  User interface     : Open the frontend URL, not /docs")
+        else:
+            print("  Frontend URL       : not started (use --with-frontend)")
+        print(f"  Logs               : {BACKEND_LOG}")
+        if frontend_proc is not None:
+            print(f"  Frontend log       : {FRONTEND_LOG}")
+        print("  Press Ctrl+C to stop")
+
+        while True:
+            time.sleep(1)
     except KeyboardInterrupt:
-        proc.terminate()
-        print("\nSuperAI V11 stopped.")
+        p_info("Stopping services")
+        return 0
+    finally:
+        if frontend_proc and frontend_proc.poll() is None:
+            frontend_proc.terminate()
+            try:
+                frontend_proc.wait(timeout=20)
+            except Exception:
+                frontend_proc.kill()
+
+        if backend_proc.poll() is None:
+            backend_proc.terminate()
+            try:
+                backend_proc.wait(timeout=20)
+            except Exception:
+                backend_proc.kill()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

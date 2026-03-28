@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
@@ -139,7 +138,7 @@ class RAGEngine:
       query → web retrieve → chunk → embed → retrieve → inject context
     """
 
-    def __init__(self, cfg) -> None:
+    def __init__(self, cfg, monitoring=None) -> None:
         self.cfg         = cfg
         self._enabled    = getattr(cfg, "enabled", True)
         self._chunk_size = getattr(cfg, "chunk_size", 400)
@@ -151,9 +150,12 @@ class RAGEngine:
         self._chunker    = TextChunker(self._chunk_size, self._overlap)
         self._retriever  = WebRetriever(self._max_web)
         self._index      = ChunkIndex()
+        self._monitoring = monitoring
 
         # TTL cache: query_hash → (timestamp, context_str)
         self._cache: Dict[str, Tuple[float, str]] = {}
+        self._cache_lock = asyncio.Lock()
+        self._inflight: Dict[str, asyncio.Future[str]] = {}
 
         logger.info("RAGEngine ready", enabled=self._enabled)
 
@@ -169,46 +171,76 @@ class RAGEngine:
         if not self._enabled:
             return ""
 
-        # Cache check
         cache_key = hashlib.md5(query.encode()).hexdigest()
-        if use_cache and cache_key in self._cache:
-            ts, ctx = self._cache[cache_key]
-            if time.time() - ts < self._cache_ttl:
-                logger.debug("RAG cache hit", query=query[:40])
-                return ctx
+        waiter: Optional[asyncio.Future[str]] = None
+        leader = False
+        now = time.time()
+
+        async with self._cache_lock:
+            self._prune_cache(now)
+            if use_cache and cache_key in self._cache:
+                ts, ctx = self._cache[cache_key]
+                if now - ts < self._cache_ttl:
+                    logger.debug("RAG cache hit", query=query[:40])
+                    if self._monitoring:
+                        self._monitoring.record_cache_event("rag", "hit")
+                    return ctx
+                self._cache.pop(cache_key, None)
+
+            if use_cache and cache_key in self._inflight:
+                waiter = self._inflight[cache_key]
+            else:
+                waiter = asyncio.get_running_loop().create_future()
+                self._inflight[cache_key] = waiter
+                leader = True
+
+        if not leader:
+            if self._monitoring:
+                self._monitoring.record_cache_event("rag", "wait")
+            return await waiter
 
         try:
             # 1. Web search
             web_results = await self._retriever.retrieve(query)
             if not web_results:
-                return ""
+                ctx = ""
+            else:
+                # 2. Chunk
+                all_chunks: List[Chunk] = []
+                for r in web_results:
+                    text   = f"{r['title']}. {r['body']}"
+                    source = r.get("url", r["title"])
+                    all_chunks.extend(self._chunker.chunk(text, source))
 
-            # 2. Chunk
-            all_chunks: List[Chunk] = []
-            for r in web_results:
-                text   = f"{r['title']}. {r['body']}"
-                source = r.get("url", r["title"])
-                all_chunks.extend(self._chunker.chunk(text, source))
+                # 3. Rank chunks
+                top_chunks = await asyncio.to_thread(
+                    self._index.search, query, all_chunks, self._top_k
+                )
 
-            # 3. Rank chunks
-            top_chunks = await asyncio.to_thread(
-                self._index.search, query, all_chunks, self._top_k
-            )
+                # 4. Format context
+                ctx = self._format_context(top_chunks)
 
-            # 4. Format context
-            ctx = self._format_context(top_chunks)
+            async with self._cache_lock:
+                if use_cache:
+                    self._cache[cache_key] = (time.time(), ctx)
+                    self._prune_cache()
+                future = self._inflight.pop(cache_key, None)
+                if future and not future.done():
+                    future.set_result(ctx)
 
-            # Cache result
-            self._cache[cache_key] = (time.time(), ctx)
-            # Prune old cache entries
-            if len(self._cache) > 200:
-                oldest = min(self._cache, key=lambda k: self._cache[k][0])
-                del self._cache[oldest]
-
+            if self._monitoring:
+                self._monitoring.record_cache_event("rag", "miss")
             return ctx
 
         except Exception as e:
             logger.warning("RAG pipeline error", error=str(e))
+            async with self._cache_lock:
+                future = self._inflight.pop(cache_key, None)
+                if future and not future.done():
+                    future.set_result("")
+            if self._monitoring:
+                self._monitoring.record_cache_event("rag", "error")
+                self._monitoring.record_error("rag")
             return ""
 
     def _format_context(self, chunks: List[Chunk]) -> str:
@@ -221,3 +253,20 @@ class RAGEngine:
 
     def clear_cache(self) -> None:
         self._cache.clear()
+        if self._monitoring:
+            self._monitoring.record_cache_event("rag", "clear")
+
+    def _prune_cache(self, now: Optional[float] = None) -> None:
+        now = now or time.time()
+        expired = [
+            key for key, (ts, _) in self._cache.items()
+            if now - ts >= self._cache_ttl
+        ]
+        for key in expired:
+            self._cache.pop(key, None)
+
+        while len(self._cache) > 200:
+            oldest = min(self._cache, key=lambda key: self._cache[key][0])
+            self._cache.pop(oldest, None)
+            if self._monitoring:
+                self._monitoring.record_cache_event("rag", "evict")

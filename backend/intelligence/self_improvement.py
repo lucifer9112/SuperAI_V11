@@ -66,7 +66,7 @@ class FailureDetector:
         r"you'?re?\s+wrong",
         r"not\s+quite",
         r"that's?\s+not\s+right",
-        r"actually[,.]",
+        r"^\s*actually[,:]\s+(?:that'?s|that is|the answer|it|you)",
         r"correction:",
     ]
 
@@ -180,6 +180,8 @@ class ImprovementLogger:
     async def init(self) -> None:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._db = await aiosqlite.connect(self.db_path)
+        await self._db.execute("PRAGMA journal_mode=WAL")
+        await self._db.execute("PRAGMA busy_timeout=5000")
         await self._db.executescript("""
             CREATE TABLE IF NOT EXISTS failures (
                 failure_id   TEXT PRIMARY KEY,

@@ -156,7 +156,7 @@ export function VoiceUI() {
           Voice Interface
         </h2>
         <p className="mt-0.5 text-xs" style={{ color: "var(--text-muted)" }}>
-          Speak to SuperAI V9 for real-time transcription
+          Speak to SuperAI V11 for real-time transcription
         </p>
       </div>
 

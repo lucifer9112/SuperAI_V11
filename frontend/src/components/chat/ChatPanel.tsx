@@ -233,7 +233,7 @@ export function ChatPanel() {
         <div className="flex items-center gap-2">
           <Zap size={15} className="text-cyan-400" />
           <span className="text-sm font-semibold" style={{ color: "var(--text)" }}>
-            SuperAI V9
+            SuperAI V11
           </span>
           {isStreaming && (
             <motion.span
@@ -275,7 +275,7 @@ export function ChatPanel() {
                 <Zap size={24} className="text-cyan-400" />
               </div>
               <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-                Ask SuperAI V9 anything
+                Ask SuperAI V11 anything
               </p>
               <div className="flex flex-wrap justify-center gap-2">
                 {["Write Python code", "Explain quantum computing", "Search latest AI news"].map((sample) => (
@@ -341,7 +341,7 @@ export function ChatPanel() {
           </button>
         </div>
         <p className="mt-1.5 text-center text-[11px]" style={{ color: "var(--text-dim)" }}>
-          SuperAI V9 · Multi-modal AI · Rate responses with stars to improve
+          SuperAI V11 · Stable AI assistant
         </p>
       </div>
     </div>

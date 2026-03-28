@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import Field
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_DIR = Path(__file__).parent.parent.parent
@@ -27,6 +27,16 @@ _YAML_CONFIG = _load_yaml()
 
 def _yaml_value(section: str, key: str, default: Any = None) -> Any:
     return _YAML_CONFIG.get(section, {}).get(key, default)
+
+
+def _build_feature_gates() -> "FeatureGates":
+    env_features = FeatureGates()
+    merged = env_features.model_dump()
+    for key, value in _YAML_CONFIG.get("features", {}).items():
+        env_key = f"FEATURES__{key.upper()}"
+        if env_key not in os.environ:
+            merged[key] = value
+    return FeatureGates(**merged)
 
 
 class ServerSettings(BaseSettings):
@@ -71,15 +81,38 @@ class MemorySettings(BaseSettings):
     max_history_turns: int = Field(default_factory=lambda: _yaml_value("memory", "max_history_turns", 20))
 
 
+class FeedbackSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="FEEDBACK__", populate_by_name=True)
+
+    enabled: bool = Field(default_factory=lambda: _yaml_value("feedback", "enabled", False))
+    store_path: str = Field(default_factory=lambda: _yaml_value("feedback", "store_path", "data/feedback.db"))
+    min_score: int = Field(default_factory=lambda: _yaml_value("feedback", "min_score", 1))
+    max_score: int = Field(default_factory=lambda: _yaml_value("feedback", "max_score", 5))
+    learning_threshold: int = Field(default_factory=lambda: _yaml_value("feedback", "learning_threshold", 50))
+
+
 class SecuritySettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="SECURITY__")
+    model_config = SettingsConfigDict(env_prefix="SECURITY__", populate_by_name=True)
 
     enabled: bool = Field(default_factory=lambda: _yaml_value("security", "enabled", True))
     prompt_injection_guard: bool = Field(
         default_factory=lambda: _yaml_value("security", "prompt_injection_guard", True)
     )
     output_filter: bool = Field(default_factory=lambda: _yaml_value("security", "output_filter", True))
-    secret_key: str = Field(default="change-me-in-production", validation_alias="SECRET_KEY")
+    secret_key: str = Field(
+        default="change-me-in-production",
+        validation_alias=AliasChoices("SECRET_KEY", "secret_key"),
+    )
+
+    @model_validator(mode="after")
+    def _validate_secret_key(self):
+        if self.secret_key and self.secret_key != "change-me-in-production":
+            return self
+
+        env = os.environ.get("SERVER__ENVIRONMENT", "")
+        if env.lower() != "production":
+            return self
+        raise ValueError("SECRET_KEY must be changed in production")
 
 
 class PersonalitySettings(BaseSettings):
@@ -107,6 +140,14 @@ class LoggingSettings(BaseSettings):
 
 
 class FeatureGates(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="FEATURES__",
+        populate_by_name=True,
+        env_file=str(ROOT_DIR / ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     enable_workflow: bool = False
     enable_skills: bool = False
     enable_context: bool = False
@@ -146,10 +187,17 @@ class AppSettings(BaseSettings):
     server: ServerSettings = Field(default_factory=ServerSettings)
     models: ModelSettings = Field(default_factory=ModelSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    feedback: FeedbackSettings = Field(default_factory=FeedbackSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
     personality: PersonalitySettings = Field(default_factory=PersonalitySettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
-    features: FeatureGates = Field(default_factory=lambda: FeatureGates(**_YAML_CONFIG.get("features", {})))
+    features: FeatureGates = Field(default_factory=_build_feature_gates)
+
+    @model_validator(mode="after")
+    def _validate_security_defaults(self):
+        if self.server.environment == "production" and "change-me" in self.security.secret_key:
+            raise ValueError("SECRET_KEY must be changed in production")
+        return self
 
     @property
     def current_mode(self) -> str:

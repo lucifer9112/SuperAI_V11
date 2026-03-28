@@ -75,6 +75,8 @@ class EpisodicMemory:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._db = await aiosqlite.connect(self.db_path)
         self._db.row_factory = aiosqlite.Row
+        await self._db.execute("PRAGMA journal_mode=WAL")
+        await self._db.execute("PRAGMA busy_timeout=5000")
         await self._db.execute("""
             CREATE TABLE IF NOT EXISTS episodes (
                 id          TEXT PRIMARY KEY,
@@ -101,15 +103,16 @@ class EpisodicMemory:
         tags: Optional[List[str]] = None,
         importance: float = 1.0,
     ) -> str:
+        db = self._require_db()
         emotion = detect_emotion(user_msg)
         ep_id   = str(uuid.uuid4())[:10]
-        await self._db.execute(
+        await db.execute(
             "INSERT INTO episodes (id,session_id,user_msg,ai_response,emotion,timestamp,tags,importance) "
             "VALUES (?,?,?,?,?,?,?,?)",
             (ep_id, session_id, user_msg, ai_response,
              emotion, time.time(), json.dumps(tags or []), importance),
         )
-        await self._db.commit()
+        await db.commit()
         return ep_id
 
     async def recall(
@@ -118,14 +121,15 @@ class EpisodicMemory:
         emotion: Optional[str] = None,
         limit: int = 5,
     ) -> List[Episode]:
+        db = self._require_db()
         if emotion:
-            cur = await self._db.execute(
+            cur = await db.execute(
                 "SELECT * FROM episodes WHERE session_id=? AND emotion=? "
                 "ORDER BY timestamp DESC LIMIT ?",
                 (session_id, emotion, limit),
             )
         else:
-            cur = await self._db.execute(
+            cur = await db.execute(
                 "SELECT * FROM episodes WHERE session_id=? ORDER BY timestamp DESC LIMIT ?",
                 (session_id, limit),
             )
@@ -139,7 +143,8 @@ class EpisodicMemory:
         ]
 
     async def recall_by_keyword(self, keyword: str, limit: int = 5) -> List[Episode]:
-        cur = await self._db.execute(
+        db = self._require_db()
+        cur = await db.execute(
             "SELECT * FROM episodes WHERE user_msg LIKE ? OR ai_response LIKE ? "
             "ORDER BY importance DESC, timestamp DESC LIMIT ?",
             (f"%{keyword}%", f"%{keyword}%", limit),
@@ -156,6 +161,12 @@ class EpisodicMemory:
     async def close(self) -> None:
         if self._db:
             await self._db.close()
+            self._db = None
+
+    def _require_db(self) -> aiosqlite.Connection:
+        if self._db is None:
+            raise RuntimeError("EpisodicMemory not initialized")
+        return self._db
 
 
 # ── Semantic Knowledge Graph ──────────────────────────────────────

@@ -27,6 +27,8 @@ class SimpleMemoryService:
     async def init(self) -> None:
         self._db = await aiosqlite.connect(self.db_path.as_posix())
         self._db.row_factory = aiosqlite.Row
+        await self._db.execute("PRAGMA journal_mode=WAL")
+        await self._db.execute("PRAGMA busy_timeout=5000")
         await self._db.executescript(
             f"""
             CREATE TABLE IF NOT EXISTS {self.CONV_TABLE} (

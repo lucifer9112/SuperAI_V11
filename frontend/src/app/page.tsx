@@ -1,29 +1,67 @@
 "use client";
 import React, { useState } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageSquare, Bot, LayoutDashboard, Mic, Settings, Zap } from "lucide-react";
 import { Toaster } from "react-hot-toast";
-import { ChatPanel }   from "@/components/chat/ChatPanel";
-import { AgentPanel }  from "@/components/agents/AgentPanel";
-import { Dashboard }   from "@/components/dashboard/Dashboard";
-import { VoiceUI }     from "@/components/voice/VoiceUI";
-import { cn }          from "@/lib/utils";
 
 type Tab = "chat" | "agents" | "dashboard" | "voice";
 
-const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
-  { id: "chat",      icon: <MessageSquare size={18} />, label: "Chat"      },
-  { id: "agents",    icon: <Bot           size={18} />, label: "Agents"    },
-  { id: "voice",     icon: <Mic           size={18} />, label: "Voice"     },
-  { id: "dashboard", icon: <LayoutDashboard size={18}/>, label: "Dashboard" },
-];
+const PanelLoading = () => (
+  <div className="flex h-full items-center justify-center text-sm" style={{ color: "var(--text-muted)" }}>
+    Loading panel...
+  </div>
+);
 
-const PANELS: Record<Tab, React.ReactNode> = {
-  chat:      <ChatPanel />,
-  agents:    <AgentPanel />,
-  voice:     <VoiceUI />,
-  dashboard: <Dashboard />,
-};
+const ChatPanel = dynamic(() => import("@/components/chat/ChatPanel").then((mod) => mod.ChatPanel), {
+  ssr: false,
+  loading: () => <PanelLoading />,
+});
+
+const Dashboard = dynamic(() => import("@/components/dashboard/Dashboard").then((mod) => mod.Dashboard), {
+  ssr: false,
+  loading: () => <PanelLoading />,
+});
+
+const AgentPanel = dynamic(() => import("@/components/agents/AgentPanel").then((mod) => mod.AgentPanel), {
+  ssr: false,
+  loading: () => <PanelLoading />,
+});
+
+const VoiceUI = dynamic(() => import("@/components/voice/VoiceUI").then((mod) => mod.VoiceUI), {
+  ssr: false,
+  loading: () => <PanelLoading />,
+});
+
+const ENABLE_ADVANCED_TABS = process.env.NEXT_PUBLIC_ENABLE_ADVANCED_TABS === "true";
+
+const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = ENABLE_ADVANCED_TABS
+  ? [
+      { id: "chat",      icon: <MessageSquare size={18} />, label: "Chat"      },
+      { id: "agents",    icon: <Bot           size={18} />, label: "Agents"    },
+      { id: "voice",     icon: <Mic           size={18} />, label: "Voice"     },
+      { id: "dashboard", icon: <LayoutDashboard size={18}/>, label: "Dashboard" },
+    ]
+  : [
+      { id: "chat",      icon: <MessageSquare size={18} />, label: "Chat"      },
+      { id: "dashboard", icon: <LayoutDashboard size={18}/>, label: "Dashboard" },
+    ];
+
+function renderPanel(tab: Tab): React.ReactNode {
+  if (tab === "chat") {
+    return <ChatPanel />;
+  }
+  if (tab === "dashboard") {
+    return <Dashboard />;
+  }
+  if (!ENABLE_ADVANCED_TABS) {
+    return <ChatPanel />;
+  }
+  if (tab === "agents") {
+    return <AgentPanel />;
+  }
+  return <VoiceUI />;
+}
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("chat");
@@ -85,7 +123,7 @@ export default function Home() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -12 }}
             transition={{ duration: 0.18, ease: "easeOut" }}>
-            {PANELS[tab]}
+            {renderPanel(tab)}
           </motion.div>
         </AnimatePresence>
       </main>

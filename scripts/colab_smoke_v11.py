@@ -11,7 +11,7 @@ This script:
 
 Example:
   python scripts/colab_smoke_v11.py --safe-mode
-  python scripts/colab_smoke_v11.py --features F1,F2,F4,F5,F6,F7,F8,F10,F11,S1,S2,S3 --strict-features
+  python scripts/colab_smoke_v11.py --mode advanced --features F5,S2 --strict-features
 """
 
 from __future__ import annotations
@@ -35,12 +35,13 @@ from smoke_test_v11 import SmokeTester
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run SuperAI V11 smoke tests locally on Colab.")
     parser.add_argument("--port", default=8000, type=int)
-    parser.add_argument("--model", default="TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+    parser.add_argument("--model", default="Qwen/Qwen2.5-0.5B-Instruct")
+    parser.add_argument("--mode", choices=["minimal", "advanced"], default="minimal")
     parser.add_argument("--no-install", action="store_true")
     parser.add_argument(
         "--safe-mode",
         action="store_true",
-        help="Disable V10+V11 features and skip optional heavy installs",
+        help="Backward-compatible alias for minimal mode",
     )
     parser.add_argument(
         "--features",
@@ -62,14 +63,15 @@ def main() -> int:
 
     device = check_gpu()
     features = [item.strip() for item in args.features.split(",") if item.strip()]
+    selected_mode = "minimal" if args.safe_mode else args.mode
 
     if not args.no_install:
         install_deps(args.safe_mode)
     verify_runtime_deps()
     create_dirs()
-    patch_config(device, args.model, args.port, args.safe_mode, features)
+    patch_config(device, args.model, args.port, args.safe_mode, features, mode=selected_mode)
 
-    proc = start_server(args.port)
+    proc = start_server(args.port, mode=selected_mode)
     base_url = f"http://127.0.0.1:{args.port}"
     p_info(f"Running smoke suite against {base_url}")
 

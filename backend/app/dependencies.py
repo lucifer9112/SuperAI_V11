@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
+
 from loguru import logger
 
 from backend.config.settings import settings
+
+
+@dataclass
+class ReflectionConfig:
+    enabled: bool = True
+    min_confidence_threshold: float = 0.6
+    max_reflection_rounds: int = 2
+    reflection_timeout_s: int = 30
 
 
 class ServiceContainer:
@@ -14,6 +25,7 @@ class ServiceContainer:
         self._memory_service = None
         self._security_engine = None
         self._monitoring_service = None
+        self._orchestrator = None
 
     async def startup(self) -> None:
         mode_label = "MINIMAL" if settings.is_minimal else "ADVANCED"
@@ -42,6 +54,7 @@ class ServiceContainer:
 
         if not settings.is_minimal:
             await self._load_advanced_features()
+            self._wire_orchestrator()
 
         logger.info(
             "SuperAI runtime ready",
@@ -88,21 +101,26 @@ class ServiceContainer:
     async def _load_reflection(self) -> None:
         from backend.intelligence.reflection_engine import ReflectionEngine
 
-        self._reflection_engine = ReflectionEngine(cfg=None, model_loader=self._model_loader)
+        self._reflection_engine = ReflectionEngine(cfg=ReflectionConfig(), model_loader=self._model_loader)
 
     async def _load_learning(self) -> None:
         from backend.intelligence.learning_pipeline import LearningPipeline
 
-        self._learning_pipeline = LearningPipeline(cfg=None, feedback_db=None, conv_db=None)
+        feedback_db, conv_db = self._db_paths()
+        self._learning_pipeline = LearningPipeline(cfg=None, feedback_db=feedback_db, conv_db=conv_db)
 
     async def _load_adv_memory(self) -> None:
-        from backend.memory.advanced_memory import UnifiedMemoryRetriever
+        data_dir = self._data_dir()
+        from backend.memory.advanced_memory import EpisodicMemory, SemanticGraph, UnifiedMemoryRetriever
 
+        episodic = EpisodicMemory(str(data_dir / "episodic.db"))
+        await episodic.init()
+        graph = SemanticGraph(str(data_dir / "knowledge_graph.json"))
         self._unified_memory = UnifiedMemoryRetriever(
             base_memory=self._memory_service,
-            episodic=None,
-            graph=None,
-            emotional_tagging=False,
+            episodic=episodic,
+            graph=graph,
+            emotional_tagging=True,
         )
 
     async def _load_parallel(self) -> None:
@@ -113,7 +131,7 @@ class ServiceContainer:
     async def _load_rag(self) -> None:
         from backend.knowledge.rag_engine import RAGEngine
 
-        self._rag_engine = RAGEngine(cfg=None)
+        self._rag_engine = RAGEngine(cfg=None, monitoring=self._monitoring_service)
 
     async def _load_self_improve(self) -> None:
         from backend.intelligence.self_improvement import SelfImprovementEngine
@@ -129,7 +147,7 @@ class ServiceContainer:
     async def _load_ai_security(self) -> None:
         from backend.security_ai.ai_security import AISecurityEngine
 
-        self._ai_security = AISecurityEngine(cfg=None)
+        self._ai_security = AISecurityEngine(cfg=None, monitoring=self._monitoring_service)
         await self._ai_security.init()
 
     async def _load_fusion(self) -> None:
@@ -151,13 +169,21 @@ class ServiceContainer:
     async def _load_rlhf(self) -> None:
         from backend.rlhf.rlhf_pipeline import RLHFPipeline
 
-        self._rlhf_pipeline = RLHFPipeline(None, feedback_db=None, conv_db=None)
+        feedback_db, conv_db = self._db_paths()
+        self._rlhf_pipeline = RLHFPipeline(None, feedback_db=feedback_db, conv_db=conv_db)
         await self._rlhf_pipeline.init()
 
     async def _load_tools(self) -> None:
+        from backend.tools.tool_executor import create_tool_registry
         from backend.tools.tool_calling_engine import ToolCallingEngine
 
-        self._tool_engine = ToolCallingEngine(None, self._model_loader, None, False)
+        self._tool_engine = ToolCallingEngine(
+            create_tool_registry(),
+            self._model_loader,
+            settings.models.primary,
+            False,
+            monitoring=self._monitoring_service,
+        )
 
     async def _load_consensus(self) -> None:
         from backend.consensus.consensus_engine import ConsensusEngine
@@ -206,6 +232,13 @@ class ServiceContainer:
     async def shutdown(self) -> None:
         if self._memory_service:
             await self._memory_service.close()
+        if getattr(self, "_unified_memory", None):
+            episodic = getattr(self._unified_memory, "_episodic", None)
+            if episodic:
+                await episodic.close()
+            graph = getattr(self._unified_memory, "_graph", None)
+            if graph and hasattr(graph, "save"):
+                graph.save()
         if getattr(self, "_self_improvement", None):
             await self._self_improvement.close()
         if getattr(self, "_task_queue", None):
@@ -221,6 +254,48 @@ class ServiceContainer:
         if value is None:
             raise RuntimeError(f"{name} not initialized")
         return value
+
+    def _data_dir(self) -> Path:
+        db_path = Path(settings.memory.db_path)
+        return db_path.parent if db_path.parent != Path(".") else Path("data")
+
+    def _db_paths(self) -> tuple[str, str]:
+        conv_db = Path(settings.memory.db_path)
+        feedback_db = conv_db.with_name("feedback.db")
+        return str(feedback_db), str(conv_db)
+
+    def _wire_orchestrator(self) -> None:
+        from backend.core.orchestrator import OrchestratorV11
+        from backend.core.task_router import TaskRouter
+
+        task_router = TaskRouter()
+        self._orchestrator = OrchestratorV11(
+            model_loader=self._model_loader,
+            memory_svc=self._memory_service,
+            agent_svc=getattr(self, "_coordinator", None),
+            voice_svc=getattr(self, "_voice_service", None),
+            vision_svc=getattr(self, "_vision_service", None),
+            security_engine=self._security_engine,
+            task_router=task_router,
+            monitoring_svc=self._monitoring_service,
+            personality_cfg=settings.personality,
+            reflection_engine=getattr(self, "_reflection_engine", None),
+            learning_pipeline=getattr(self, "_learning_pipeline", None),
+            unified_memory=getattr(self, "_unified_memory", None),
+            parallel_executor=getattr(self, "_parallel_executor", None),
+            rag_engine=getattr(self, "_rag_engine", None),
+            self_improvement=getattr(self, "_self_improvement", None),
+            model_registry=getattr(self, "_model_registry", None),
+            ai_security=getattr(self, "_ai_security", None),
+            fusion_engine=getattr(self, "_fusion_engine", None),
+            task_queue=getattr(self, "_task_queue", None),
+            personality_engine=getattr(self, "_personality_engine", None),
+            rlhf_pipeline=getattr(self, "_rlhf_pipeline", None),
+            tool_engine=getattr(self, "_tool_engine", None),
+            consensus_engine=getattr(self, "_consensus_engine", None),
+        )
+        setattr(self._master_controller, "_orchestrator", self._orchestrator)
+        logger.info("Advanced orchestrator wired")
 
     @property
     def master_controller(self):
@@ -241,6 +316,10 @@ class ServiceContainer:
     @property
     def monitoring_service(self):
         return self._get("_monitoring_service", "MonitoringService")
+
+    @property
+    def orchestrator(self):
+        return self._get("_orchestrator", "OrchestratorV11")
 
 
 container = ServiceContainer()
@@ -268,3 +347,83 @@ def get_model_loader():
 
 def get_feedback_service():
     return None
+
+
+def get_orchestrator():
+    return container.orchestrator
+
+
+def _optional_get(attr: str):
+    return getattr(container, attr, None)
+
+
+def get_learning_pipeline():
+    return _optional_get("_learning_pipeline")
+
+
+def get_tool_engine():
+    return _optional_get("_tool_engine")
+
+
+def get_rlhf_pipeline():
+    return _optional_get("_rlhf_pipeline")
+
+
+def get_context_compressor():
+    return _optional_get("_context_compressor")
+
+
+def get_consensus_engine():
+    return _optional_get("_consensus_engine")
+
+
+def get_bdi_engine():
+    return _optional_get("_bdi_engine")
+
+
+def get_llm_judge():
+    return _optional_get("_llm_judge")
+
+
+def get_debugger():
+    return _optional_get("_debugger")
+
+
+def get_agent_service():
+    return _optional_get("_agent_service")
+
+
+def get_coordinator():
+    return _optional_get("_coordinator")
+
+
+def get_rag_engine():
+    return _optional_get("_rag_engine")
+
+
+def get_personality_engine():
+    return _optional_get("_personality_engine")
+
+
+def get_ai_security():
+    return _optional_get("_ai_security")
+
+
+def get_code_review_engine():
+    return _optional_get("_code_review_engine")
+
+
+def get_skill_registry():
+    return _optional_get("_skill_registry")
+
+
+def get_voice_service():
+    return _optional_get("_voice_service")
+
+
+def get_vision_service():
+    return _optional_get("_vision_service")
+
+
+def get_workflow_engine():
+    return _optional_get("_workflow_engine")

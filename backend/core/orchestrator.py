@@ -153,6 +153,8 @@ class OrchestratorV11:
                 model_name = consensus_result.winner_model
             except Exception as e:
                 logger.warning("Consensus failed, falling back", error=str(e))
+                if self._monitoring:
+                    self._monitoring.record_error("consensus")
                 consensus_result = None
 
         if consensus_result is None:
@@ -167,6 +169,8 @@ class OrchestratorV11:
                     answer,tokens=await self._models.infer(model_name,prompt,req.max_tokens,req.temperature)
             except Exception as e:
                 logger.exception("Inference failed",model=model_name)
+                if self._monitoring:
+                    self._monitoring.record_error("inference")
                 raise ModelInferenceError(str(e)) from e
 
         # [F1] Self-reflection

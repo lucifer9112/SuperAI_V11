@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException, Security
+from fastapi.security import APIKeyHeader
 
 from backend.config.settings import settings
 from backend.api.v1 import chat, memory, system
 
-api_router = APIRouter()
+_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+async def require_api_key_if_needed(api_key: str | None = Security(_api_key_header)) -> None:
+    if settings.server.environment != "production":
+        return
+    if not api_key or api_key != settings.security.secret_key:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+api_router = APIRouter(dependencies=[Depends(require_api_key_if_needed)])
 
 api_router.include_router(chat.router, prefix="/chat", tags=["Chat"])
 api_router.include_router(system.router, prefix="/system", tags=["System"])

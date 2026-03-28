@@ -9,7 +9,7 @@ import psutil
 from fastapi import APIRouter, Depends
 from fastapi.responses import PlainTextResponse
 
-from backend.app.dependencies import get_master_controller, get_monitoring_service
+from backend.app.dependencies import get_feedback_service, get_master_controller, get_monitoring_service
 from backend.config.settings import settings
 from backend.models.schemas import APIResponse
 
@@ -18,10 +18,15 @@ _STARTED_AT = time.time()
 
 
 @router.get("/status", response_model=APIResponse)
-async def status(mon=Depends(get_monitoring_service), ctrl=Depends(get_master_controller)):
+async def status(
+    mon=Depends(get_monitoring_service),
+    ctrl=Depends(get_master_controller),
+    fb=Depends(get_feedback_service),
+):
     vm = psutil.virtual_memory()
     cpu = psutil.cpu_percent(interval=0.1)
     gpu = None
+    monitoring_summary = mon.summary() if mon and hasattr(mon, "summary") else {}
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=name,memory.used,memory.total", "--format=csv,noheader,nounits"],
@@ -34,7 +39,8 @@ async def status(mon=Depends(get_monitoring_service), ctrl=Depends(get_master_co
     except Exception:
         gpu = None
 
-    controller_status = ctrl.get_status() if ctrl else {}
+    controller_status = ctrl.get_status() if ctrl and hasattr(ctrl, "get_status") else {}
+    feedback_count = fb.total_count() if fb and hasattr(fb, "total_count") else 0
     return APIResponse(
         data={
             "status": "ok",
@@ -51,7 +57,10 @@ async def status(mon=Depends(get_monitoring_service), ctrl=Depends(get_master_co
             "security_enabled": controller_status.get("security_enabled", True),
             "active_features": controller_status.get("features", []),
             "requests_total": mon.total_requests(),
+            "errors_total": monitoring_summary.get("errors_total", 0),
             "avg_latency_ms": mon.avg_latency(),
+            "feedback_count": feedback_count,
+            "monitoring": monitoring_summary,
         }
     )
 

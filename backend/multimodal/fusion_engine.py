@@ -30,6 +30,8 @@ class FusedPrompt:
     unified_prompt:  str
     modalities_used: list
     text_weight:     float
+    image_weight:    float = 0.0
+    audio_weight:    float = 0.0
     image_desc:      str = ""
     audio_transcript:str = ""
 
@@ -80,29 +82,62 @@ class MultimodalFusionEngine:
             audio_transcript = results[1]
             modalities.append("audio")
 
+        text_weight, image_weight, audio_weight = self._resolve_weights(
+            has_image=bool(image_desc),
+            has_audio=bool(audio_transcript),
+        )
+
         unified = self._build_unified_prompt(
-            inp.text, image_desc, audio_transcript
+            inp.text,
+            image_desc,
+            audio_transcript,
+            text_weight,
+            image_weight,
+            audio_weight,
         )
 
         return FusedPrompt(
             unified_prompt   = unified,
             modalities_used  = modalities,
-            text_weight      = getattr(self.cfg, "text_weight", 0.6),
+            text_weight      = text_weight,
+            image_weight     = image_weight,
+            audio_weight     = audio_weight,
             image_desc       = image_desc,
             audio_transcript = audio_transcript,
         )
 
     def _build_unified_prompt(
-        self, text: str, image_desc: str, audio_transcript: str
+        self,
+        text: str,
+        image_desc: str,
+        audio_transcript: str,
+        text_weight: float,
+        image_weight: float,
+        audio_weight: float,
     ) -> str:
         parts = []
         if text:
-            parts.append(f"User text: {text}")
+            parts.append(f"[Text weight={text_weight:.2f}] User text: {text}")
         if image_desc:
-            parts.append(f"[Image content: {image_desc}]")
+            parts.append(f"[Image weight={image_weight:.2f}] Image content: {image_desc}")
         if audio_transcript:
-            parts.append(f"[Spoken input: {audio_transcript}]")
+            parts.append(f"[Audio weight={audio_weight:.2f}] Spoken input: {audio_transcript}")
         return "\n".join(parts) or text
+
+    def _resolve_weights(self, *, has_image: bool, has_audio: bool) -> tuple[float, float, float]:
+        text_weight = float(getattr(self.cfg, "text_weight", 0.6))
+        image_weight = float(getattr(self.cfg, "image_weight", 0.25 if has_image else 0.0))
+        audio_weight = float(getattr(self.cfg, "audio_weight", 0.15 if has_audio else 0.0))
+
+        if not has_image:
+            image_weight = 0.0
+        if not has_audio:
+            audio_weight = 0.0
+
+        total = text_weight + image_weight + audio_weight
+        if total <= 0:
+            return 1.0, 0.0, 0.0
+        return text_weight / total, image_weight / total, audio_weight / total
 
     async def _describe_image(self, image_b64: str, question: str) -> str:
         try:

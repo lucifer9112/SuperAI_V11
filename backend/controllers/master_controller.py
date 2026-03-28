@@ -41,66 +41,62 @@ class MasterController:
         return await self._process_advanced(req)
 
     async def stream(self, req: ChatRequest):
-        result = await self.process(req)
-        yield result.answer
+        if not self.is_minimal and getattr(self, "_orchestrator", None):
+            async for token in self._orchestrator.chat_stream(req):
+                yield token
+            return
 
-    async def _process_minimal(self, req: ChatRequest) -> ChatResponse:
-        started_at = time.perf_counter()
-        session_id = req.session_id or uuid.uuid4().hex[:8]
-        response_id = uuid.uuid4().hex[:8]
+        state = await self._prepare_request(req)
+        if self._models is None or not hasattr(self._models, "stream"):
+            result = await self._process_minimal(req)
+            yield result.answer
+            return
 
-        if self._security and settings.security.enabled:
-            if self._security.validate(req.prompt):
-                from backend.core.exceptions import SecurityViolationError
+        answer_parts: list[str] = []
+        async for token in self._models.stream(
+            state["model_name"],
+            state["prompt"],
+            state["max_tokens"],
+            state["temperature"],
+        ):
+            answer_parts.append(token)
+            yield token
 
-                raise SecurityViolationError("Input blocked by security policy")
-
-        task_type = req.force_task or self._route_task(req.prompt)
-        model_name = req.force_model or settings.models.primary
-        context = []
-        if self._memory and settings.memory.enabled:
-            context = await self._memory.get_context(session_id=session_id, prompt=req.prompt)
-
-        prompt = self._build_prompt(req.prompt, task_type, context)
-        answer, tokens = await self._run_inference(
-            model_name=model_name,
-            prompt=prompt,
-            max_tokens=req.max_tokens or settings.models.default_max_tokens,
-            temperature=req.temperature or settings.models.default_temperature,
+        answer = "".join(answer_parts).strip() or self._fallback_answer()
+        await self._finalize_response(
+            session_id=state["session_id"],
+            prompt=req.prompt,
+            answer=answer,
+            response_id=state["response_id"],
+            task_type=state["task_type"],
+            model_name=state["model_name"],
+            started_at=state["started_at"],
+            tokens=await self._count_tokens(state["model_name"], answer),
         )
 
-        if self._security and settings.security.output_filter:
-            answer = self._security.filter_output(answer)
-
-        if self._memory and settings.memory.enabled:
-            await self._memory.save_turn(
-                session_id=session_id,
-                user_text=req.prompt,
-                assistant_text=answer,
-                response_id=response_id,
-            )
-
-        latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
-        if self._monitoring:
-            self._monitoring.record_request(
-                task_type=task_type.value,
-                model=model_name,
-                latency_ms=latency_ms,
-                tokens=tokens,
-            )
-
-        return ChatResponse(
+    async def _process_minimal(self, req: ChatRequest) -> ChatResponse:
+        state = await self._prepare_request(req)
+        answer, tokens = await self._run_inference(
+            model_name=state["model_name"],
+            prompt=state["prompt"],
+            max_tokens=state["max_tokens"],
+            temperature=state["temperature"],
+        )
+        return await self._finalize_response(
+            session_id=state["session_id"],
+            prompt=req.prompt,
             answer=answer,
-            session_id=session_id,
-            task_type=task_type.value,
-            model_used=model_name,
-            tokens_used=tokens,
-            latency_ms=latency_ms,
-            response_id=response_id,
+            response_id=state["response_id"],
+            task_type=state["task_type"],
+            model_name=state["model_name"],
+            started_at=state["started_at"],
+            tokens=tokens,
         )
 
     async def _process_advanced(self, req: ChatRequest) -> ChatResponse:
         logger.info("Advanced mode request routed through master controller", active_features=settings.active_features)
+        if getattr(self, "_orchestrator", None):
+            return await self._orchestrator.chat(req)
         return await self._process_minimal(req)
 
     async def _run_inference(
@@ -118,6 +114,8 @@ class MasterController:
             return await self._models.infer(model_name, prompt, max_tokens, temperature)
         except Exception as exc:
             logger.warning("Inference failed, returning controlled fallback", error=str(exc), model=model_name)
+            if self._monitoring:
+                self._monitoring.record_error("inference")
             return self._fallback_answer(), 0
 
     @staticmethod
@@ -157,6 +155,86 @@ class MasterController:
         sections.append(f"User: {prompt}")
         sections.append("Assistant:")
         return "\n\n".join(part for part in sections if part.strip())
+
+    async def _prepare_request(self, req: ChatRequest) -> dict[str, Any]:
+        started_at = time.perf_counter()
+        session_id = req.session_id or uuid.uuid4().hex[:8]
+        response_id = uuid.uuid4().hex[:8]
+
+        if self._security and settings.security.enabled:
+            if self._security.validate(req.prompt):
+                from backend.core.exceptions import SecurityViolationError
+
+                raise SecurityViolationError("Input blocked by security policy")
+
+        task_type = req.force_task or self._route_task(req.prompt)
+        model_name = req.force_model or settings.models.primary
+        context = []
+        if self._memory and settings.memory.enabled:
+            context = await self._memory.get_context(session_id=session_id, prompt=req.prompt)
+
+        return {
+            "started_at": started_at,
+            "session_id": session_id,
+            "response_id": response_id,
+            "task_type": task_type,
+            "model_name": model_name,
+            "prompt": self._build_prompt(req.prompt, task_type, context),
+            "max_tokens": req.max_tokens or settings.models.default_max_tokens,
+            "temperature": req.temperature or settings.models.default_temperature,
+        }
+
+    async def _count_tokens(self, model_name: str, text: str) -> int:
+        if not text:
+            return 0
+        if self._models and hasattr(self._models, "count_tokens"):
+            try:
+                return await self._models.count_tokens(model_name, text)
+            except Exception:
+                pass
+        return max(1, len(text.split()))
+
+    async def _finalize_response(
+        self,
+        *,
+        session_id: str,
+        prompt: str,
+        answer: str,
+        response_id: str,
+        task_type: TaskType,
+        model_name: str,
+        started_at: float,
+        tokens: int,
+    ) -> ChatResponse:
+        if self._security and settings.security.output_filter:
+            answer = self._security.filter_output(answer)
+
+        if self._memory and settings.memory.enabled:
+            await self._memory.save_turn(
+                session_id=session_id,
+                user_text=prompt,
+                assistant_text=answer,
+                response_id=response_id,
+            )
+
+        latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        if self._monitoring:
+            self._monitoring.record_request(
+                task_type=task_type.value,
+                model=model_name,
+                latency_ms=latency_ms,
+                tokens=tokens,
+            )
+
+        return ChatResponse(
+            answer=answer,
+            session_id=session_id,
+            task_type=task_type.value,
+            model_used=model_name,
+            tokens_used=tokens,
+            latency_ms=latency_ms,
+            response_id=response_id,
+        )
 
     def get_status(self) -> dict[str, Any]:
         return {

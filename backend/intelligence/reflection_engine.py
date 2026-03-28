@@ -86,9 +86,10 @@ class ReflectionEngine:
 
         t0 = time.perf_counter()
         try:
-            confidence = self._score_confidence(answer)
+            confidence = self._score_confidence(answer, task_type=task_type)
+            threshold = self._threshold - 0.1 if task_type in {"code", "math"} else self._threshold
 
-            if confidence >= self._threshold:
+            if confidence >= threshold:
                 return ReflectionResult(
                     original_answer=answer, final_answer=answer,
                     confidence=confidence, was_reflected=False,
@@ -121,7 +122,7 @@ class ReflectionEngine:
 
     # ── Confidence scoring ─────────────────────────────────────────
 
-    def _score_confidence(self, answer: str) -> float:
+    def _score_confidence(self, answer: str, task_type: str = "chat") -> float:
         """
         Heuristic confidence score.
         Factors: length, hedging words, contradiction density.
@@ -133,7 +134,8 @@ class ReflectionEngine:
 
         # Hedge penalty
         hedge_count = len(_HEDGES.findall(answer))
-        score -= min(hedge_count * 0.08, 0.3)
+        hedge_penalty = 0.03 if task_type in {"code", "math"} else 0.08
+        score -= min(hedge_count * hedge_penalty, 0.3)
 
         # Length bonus (very short = uncertain)
         words = len(answer.split())

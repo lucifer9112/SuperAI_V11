@@ -67,9 +67,9 @@ class ToolCallingEngine:
     """
 
     def __init__(self, registry: ToolRegistry, model_loader=None,
-                 model_name: str = "", use_llm_select: bool = False) -> None:
+                 model_name: str = "", use_llm_select: bool = False, monitoring=None) -> None:
         self._reg        = registry
-        self._executor   = ToolExecutor(registry)
+        self._executor   = ToolExecutor(registry, monitoring=monitoring)
         self._selector   = ToolSelector(registry)
         self._extractor  = ToolArgExtractor()
         self._loader     = model_loader
