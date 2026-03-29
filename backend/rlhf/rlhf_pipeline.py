@@ -44,9 +44,10 @@ class TrainingRun:
 class FeedbackToRLHFConverter:
     """Convert feedback DB rows → RLHF preference pairs."""
 
-    def __init__(self, feedback_db: str, conv_db: str) -> None:
+    def __init__(self, feedback_db: str, conv_db: str, monitoring=None) -> None:
         self._fb   = feedback_db
         self._conv = conv_db
+        self._monitoring = monitoring
 
     async def build_pairs(self, min_pairs: int = 5) -> List[Dict[str, str]]:
         pairs: List[Dict] = []
@@ -82,6 +83,8 @@ class FeedbackToRLHFConverter:
                                           "rejected": l["a"], "reward_diff": 2.0})
 
                     if len(pairs) < min_pairs:
+                        if self._monitoring:
+                            self._monitoring.record_error("rlhf_insufficient_pairs")
                         logger.warning(
                             "RLHF natural pairs below target; skipping synthetic truncation bootstrap",
                             available=len(pairs),
@@ -269,9 +272,10 @@ class GRPOTrainer:
 class RLHFPipeline:
     """Main RLHF coordinator — manages reward model + training lifecycle."""
 
-    def __init__(self, cfg, feedback_db: str, conv_db: str) -> None:
+    def __init__(self, cfg, feedback_db: str, conv_db: str, monitoring=None) -> None:
         self.cfg        = cfg
-        self._converter = FeedbackToRLHFConverter(feedback_db, conv_db)
+        self._monitoring = monitoring
+        self._converter = FeedbackToRLHFConverter(feedback_db, conv_db, monitoring=monitoring)
         out_dir         = getattr(cfg, "rlhf_output_dir", "data/rlhf_checkpoints/")
         self._dpo       = DPOTrainer(out_dir)
         self._grpo      = GRPOTrainer(out_dir)

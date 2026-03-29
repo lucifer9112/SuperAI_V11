@@ -119,7 +119,13 @@ class OrchestratorV11:
 
             self._personality.update_session(sid, req.prompt, detect_emotion(req.prompt))
         pa = self._personality.get_system_prompt_addon(sid) if self._personality else ""
-        prompt = self._build_prompt(req.prompt, task_type, [], pa=pa)
+        context = []
+        if self._memory:
+            try:
+                context = await self._memory.get_context(session_id=sid, prompt=req.prompt)
+            except Exception as exc:
+                logger.warning("Fast path context lookup failed", error=str(exc))
+        prompt = self._build_prompt(req.prompt, task_type, context, pa=pa)
         model_name = self.select_model_for_task(task_type, req.force_model)
         answer, tokens = await self._models.infer(model_name, prompt, req.max_tokens, req.temperature)
 
@@ -150,7 +156,13 @@ class OrchestratorV11:
 
             self._personality.update_session(sid, req.prompt, detect_emotion(req.prompt))
         pa = self._personality.get_system_prompt_addon(sid) if self._personality else ""
-        prompt = self._build_prompt(req.prompt, task_type, [], pa=pa)
+        context = []
+        if self._memory:
+            try:
+                context = await self._memory.get_context(session_id=sid, prompt=req.prompt)
+            except Exception as exc:
+                logger.warning("Fast stream context lookup failed", error=str(exc))
+        prompt = self._build_prompt(req.prompt, task_type, context, pa=pa)
         model_name = self.select_model_for_task(task_type, req.force_model)
         full: list[str] = []
         async for tok in self._models.stream(model_name, prompt, req.max_tokens, req.temperature):

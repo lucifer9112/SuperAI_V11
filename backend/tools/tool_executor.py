@@ -4,6 +4,9 @@ STEP 2: Tool Calling Engine — Built-in Tools + Sandboxed Executor
 
 Built-in tools: web_search, calculator, code_execute, wikipedia, weather, file_read, datetime
 Security: code_execute uses subprocess with 10s timeout + blocked dangerous imports
+
+NOTE: subprocess isolation (temporary cwd + -I isolated Python) is the primary
+security boundary. AST validation here is defense-in-depth only.
 """
 from __future__ import annotations
 import asyncio, ast, math, os, re, subprocess, sys, tempfile, time, urllib.parse, urllib.request
@@ -41,6 +44,9 @@ def _validate_python_code(code: str) -> Optional[str]:
         elif isinstance(node, ast.Attribute):
             if node.attr.startswith("__"):
                 return f"Blocked attribute: {node.attr}"
+        elif isinstance(node, ast.Subscript):
+            if isinstance(node.value, ast.Name) and node.value.id in BLOCKED_NAMES:
+                return f"Blocked subscript: {node.value.id}"
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 root = alias.name.split(".")[0]

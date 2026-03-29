@@ -61,6 +61,14 @@ async def improve_suggest(svc=Depends(get_self_improvement)) -> APIResponse:
     return APIResponse(data={"suggestions": suggestions, "count": len(suggestions)})
 
 
+@router.get("/suggestions", response_model=APIResponse, summary="F6: Alias for improvement suggestions")
+async def suggestions(svc=Depends(get_self_improvement)) -> APIResponse:
+    if svc is None:
+        return APIResponse(data={"suggestions": [], "count": 0})
+    items = await svc.suggest_improvements()
+    return APIResponse(data={"suggestions": items, "count": len(items)})
+
+
 class RegisterModelRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 

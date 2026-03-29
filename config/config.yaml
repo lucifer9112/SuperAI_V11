@@ -37,6 +37,7 @@ memory:
 
 security:
   enabled: true
+  require_auth: false
   prompt_injection_guard: true
   output_filter: true
 

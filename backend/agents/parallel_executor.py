@@ -27,6 +27,12 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
+from backend.agents.specialized import (
+    CodingAgentProfile,
+    PlanningAgentProfile,
+    ReasoningAgentProfile,
+    ResearchAgentProfile,
+)
 
 
 # ── Agent result ──────────────────────────────────────────────────
@@ -101,11 +107,7 @@ class SpecializedAgent:
 
 class ResearchAgent(SpecializedAgent):
     agent_type    = "research"
-    system_prompt = (
-        "You are a research specialist. Your job is to find, analyse, "
-        "and synthesise information. Provide factual, well-structured answers "
-        "with key points highlighted. Use web search when available."
-    )
+    system_prompt = ResearchAgentProfile.SYSTEM_PROMPT
 
     async def run(self, goal: str, context: str = "", model_name: str = "") -> AgentResult:
         # Try web search first
@@ -125,31 +127,17 @@ class ResearchAgent(SpecializedAgent):
 
 class CodingAgent(SpecializedAgent):
     agent_type    = "coding"
-    system_prompt = (
-        "You are an expert software engineer. Write clean, efficient, "
-        "well-commented code. Include error handling and tests where relevant. "
-        "Follow best practices for the language being used."
-    )
+    system_prompt = CodingAgentProfile.SYSTEM_PROMPT
 
 
 class ReasoningAgent(SpecializedAgent):
     agent_type    = "reasoning"
-    system_prompt = (
-        "You are a logical reasoning specialist. Break down complex problems "
-        "step-by-step. Show your reasoning chain clearly. "
-        "For math problems, show all calculation steps. "
-        "State assumptions explicitly."
-    )
+    system_prompt = ReasoningAgentProfile.SYSTEM_PROMPT
 
 
 class PlanningAgent(SpecializedAgent):
     agent_type    = "planning"
-    system_prompt = (
-        "You are a strategic planning specialist. Decompose complex goals "
-        "into actionable steps with clear priorities and dependencies. "
-        "Estimate timeframes and identify risks. "
-        "Output a structured plan with phases."
-    )
+    system_prompt = PlanningAgentProfile.SYSTEM_PROMPT
 
 
 # ── Parallel Executor ─────────────────────────────────────────────
@@ -373,4 +361,3 @@ class SubagentOrchestrator:
             "review": review,
             "total_ms": (time.perf_counter() - t0) * 1000,
         }
-

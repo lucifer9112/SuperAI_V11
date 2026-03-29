@@ -95,6 +95,7 @@ class SecuritySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SECURITY__", populate_by_name=True)
 
     enabled: bool = Field(default_factory=lambda: _yaml_value("security", "enabled", True))
+    require_auth: bool = Field(default_factory=lambda: _yaml_value("security", "require_auth", False))
     prompt_injection_guard: bool = Field(
         default_factory=lambda: _yaml_value("security", "prompt_injection_guard", True)
     )

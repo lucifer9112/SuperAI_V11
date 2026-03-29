@@ -51,6 +51,8 @@ async def grpo_train(req: GRPORequest, rlhf=Depends(get_rlhf_pipeline)):
     if rlhf is None:
         return APIResponse(success=False, error="RLHF pipeline not loaded")
     run = await rlhf.run_grpo(req.model_name, req.prompts, req.epochs)
+    if run.status != "done":
+        return APIResponse(success=False, error=run.metrics.get("message") or run.metrics.get("error") or "GRPO failed")
     return APIResponse(data={"run_id": run.run_id, "status": run.status, "metrics": run.metrics})
 
 

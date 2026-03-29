@@ -90,7 +90,7 @@ async def test_rag_engine_releases_followers_when_leader_is_cancelled():
 
 def test_code_execute_blocks_dunder_builtin_access():
     blocked = tool_executor._validate_python_code("__builtins__['print']('hi')")
-    assert blocked == "Blocked name: __builtins__"
+    assert blocked == "Blocked subscript: __builtins__"
 
 
 @pytest.mark.asyncio
@@ -123,10 +123,12 @@ def test_memory_v9_access_raises_import_error():
 class _FakeModelLoader:
     def __init__(self) -> None:
         self.calls = 0
+        self.last_prompt = ""
 
     async def infer(self, model_name: str, prompt: str, max_tokens: int, temperature: float):
-        del prompt, max_tokens, temperature
+        del max_tokens, temperature
         self.calls += 1
+        self.last_prompt = prompt
         return f"answer-from-{model_name}", 4
 
     async def stream(self, model_name: str, prompt: str, max_tokens: int, temperature: float):
@@ -243,8 +245,9 @@ async def test_orchestrator_fast_path_skips_heavy_pipeline_for_simple_chat():
     result = await orch.chat(ChatRequest(prompt="hello", session_id="sess-fast", max_tokens=32))
 
     assert result.answer == "answer-from-demo-model"
-    assert memory.context_calls == 0
+    assert memory.context_calls == 1
     assert len(memory.saved) == 1
+    assert "User: u" in model_loader.last_prompt
     assert improve.calls == 0
     assert rag.calls == 0
     assert tools.calls == 0

@@ -12,7 +12,7 @@ _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 async def require_api_key_if_needed(api_key: str | None = Security(_api_key_header)) -> None:
-    if settings.server.environment != "production":
+    if not (settings.security.require_auth or settings.server.environment == "production"):
         return
     if not api_key or api_key != settings.security.secret_key:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")

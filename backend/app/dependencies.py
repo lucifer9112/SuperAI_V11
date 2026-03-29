@@ -170,7 +170,12 @@ class ServiceContainer:
         from backend.rlhf.rlhf_pipeline import RLHFPipeline
 
         feedback_db, conv_db = self._db_paths()
-        self._rlhf_pipeline = RLHFPipeline(None, feedback_db=feedback_db, conv_db=conv_db)
+        self._rlhf_pipeline = RLHFPipeline(
+            None,
+            feedback_db=feedback_db,
+            conv_db=conv_db,
+            monitoring=self._monitoring_service,
+        )
         await self._rlhf_pipeline.init()
 
     async def _load_tools(self) -> None:
