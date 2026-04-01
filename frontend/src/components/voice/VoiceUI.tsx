@@ -65,7 +65,11 @@ export function VoiceUI() {
   const processAudio = async (blob: Blob) => {
     setLoading(true);
     try {
-      const { transcript: nextTranscript } = await voiceAPI.stt(blob);
+      const { transcript: nextTranscript, confidence } = await voiceAPI.stt(blob);
+      if (!nextTranscript || (confidence ?? 1) <= 0) {
+        toast.error("Speech-to-text is unavailable in this environment");
+        return;
+      }
       setTranscript(nextTranscript);
       if (nextTranscript) {
         const preview = nextTranscript.length > 40 ? `${nextTranscript.slice(0, 40)}...` : nextTranscript;

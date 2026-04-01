@@ -1,6 +1,6 @@
 """SuperAI V11 - backend/api/v1/voice.py."""
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from backend.app.dependencies import get_voice_service
@@ -11,6 +11,8 @@ router = APIRouter()
 
 @router.post("/tts", summary="Text to speech audio")
 async def tts(req: TTSRequest, svc=Depends(get_voice_service)) -> Response:
+    if svc is None:
+        raise HTTPException(status_code=503, detail="Voice service not loaded")
     audio = await svc.synthesize(req.text, req.engine, req.speed)
     engine = (req.engine or svc.cfg.tts_engine or "").lower()
     is_mp3 = engine == "gtts"
@@ -25,6 +27,8 @@ async def tts(req: TTSRequest, svc=Depends(get_voice_service)) -> Response:
 
 @router.post("/stt", response_model=APIResponse, summary="Audio to transcript")
 async def stt(audio: UploadFile = File(...), svc=Depends(get_voice_service)) -> APIResponse:
+    if svc is None:
+        return APIResponse(success=False, error="Voice service not loaded")
     data = await audio.read()
     result = await svc.transcribe(data, audio.filename or "audio.wav")
     return APIResponse(data=result.model_dump())
@@ -32,4 +36,6 @@ async def stt(audio: UploadFile = File(...), svc=Depends(get_voice_service)) -> 
 
 @router.get("/status", response_model=APIResponse)
 async def status(svc=Depends(get_voice_service)) -> APIResponse:
+    if svc is None:
+        return APIResponse(success=False, error="Voice service not loaded")
     return APIResponse(data=await svc.get_status())

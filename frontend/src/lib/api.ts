@@ -44,6 +44,12 @@ export interface ChatResponse {
   response_id: string;
 }
 
+export interface STTResult {
+  transcript: string;
+  language?: string;
+  confidence?: number;
+}
+
 export interface AgentRunRequest {
   goal: string;
   session_id?: string;
@@ -125,7 +131,11 @@ function makeClient(): AxiosInstance {
       return response;
     },
     (error) => {
-      throw new Error(error.response?.data?.message || error.message || "Network error");
+      const payload = error.response?.data;
+      const detail = Array.isArray(payload?.detail)
+        ? payload.detail.map((item: { msg?: string }) => item?.msg || "Validation error").join(", ")
+        : payload?.detail;
+      throw new Error(detail || payload?.error || payload?.message || error.message || "Network error");
     },
   );
 
@@ -181,11 +191,12 @@ export const feedbackAPI = {
 export const voiceAPI = {
   tts: async (text: string): Promise<Blob> =>
     (await http.post("/api/v1/voice/tts", { text }, { responseType: "blob" })).data as Blob,
-  stt: async (blob: Blob): Promise<{ transcript: string }> => {
+  stt: async (blob: Blob): Promise<STTResult> => {
     const formData = new FormData();
     formData.append("audio", blob, audioFilenameForBlob(blob));
     return (await axios.post(`${API_BASE_URL}/api/v1/voice/stt`, formData)).data.data;
   },
+  status: async () => (await http.get("/api/v1/voice/status")).data.data,
 };
 
 export type WSMessage =

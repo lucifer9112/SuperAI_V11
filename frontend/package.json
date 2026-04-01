@@ -6,6 +6,7 @@
     "dev":        "next dev",
     "build":      "next build",
     "start":      "next start",
+    "preview":    "node .next/standalone/server.js",
     "lint":       "next lint",
     "type-check": "tsc --noEmit -p tsconfig.typecheck.json"
   },

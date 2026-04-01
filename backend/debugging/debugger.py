@@ -204,6 +204,8 @@ class SystematicDebugger:
                 model_name="", prompt=prompt,
                 max_tokens=500, temperature=0.3,
             )
+            if self._looks_degraded(answer):
+                return self._fallback_phase(phase, kwargs.get("error", ""))
             suggestions = self._extract_numbered_items(answer)
             return DebugPhaseResult(
                 phase=phase,
@@ -226,6 +228,11 @@ class SystematicDebugger:
             if line and len(line) > 20:
                 return line
         return analysis[:200] if analysis else "Could not determine root cause"
+
+    @staticmethod
+    def _looks_degraded(text: str) -> bool:
+        lowered = text.lower()
+        return "degraded model mode" in lowered or "server is healthy" in lowered
 
     @staticmethod
     def _extract_numbered_items(text: str) -> List[str]:

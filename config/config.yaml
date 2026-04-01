@@ -1,4 +1,4 @@
-mode: "minimal"
+mode: "advanced"
 
 app:
   name: "SuperAI"
@@ -18,9 +18,12 @@ models:
   device: "auto"
   cache_size: 1
   idle_timeout: 300
+  load_timeout_s: 180
   default_max_tokens: 512
   default_temperature: 0.7
   primary: "Qwen/Qwen2.5-0.5B-Instruct"
+  fallback_models:
+    - "sshleifer/tiny-gpt2"
 
 logging:
   level: "INFO"
@@ -35,41 +38,62 @@ memory:
   context_window: 5
   max_history_turns: 20
 
+feedback:
+  enabled: true
+  store_path: "data/feedback.db"
+  min_score: 1
+  max_score: 5
+  learning_threshold: 50
+
 security:
   enabled: true
   require_auth: false
+  bandit_scan: true
   prompt_injection_guard: true
   output_filter: true
 
 personality:
-  enabled: false
+  enabled: true
   name: "SuperAI"
   version: "11.0"
   system_prompt: "You are SuperAI, a helpful and accurate AI assistant. Give clear, concise answers."
 
+voice:
+  enabled: true
+  stt_model: "base"
+  tts_engine: "gtts"
+  language: "en"
+  tts_rate: 180
+  tts_volume: 1.0
+
+skills:
+  builtin_dir: "backend/skills/builtin/"
+  custom_dir: "data/custom_skills"
+  auto_activate_all: true
+
 features:
-  enable_workflow: false
-  enable_skills: false
-  enable_context: false
-  enable_judge: false
-  enable_cognitive: false
-  enable_reflection: false
-  enable_learning: false
-  enable_advanced_memory: false
-  enable_parallel_agents: false
-  enable_rag: false
-  enable_self_improvement: false
-  enable_model_registry: false
-  enable_ai_security: false
-  enable_multimodal: false
-  enable_distributed: false
-  enable_personality: false
-  enable_rlhf: false
-  enable_tools: false
-  enable_consensus: false
-  enable_code_review: false
-  enable_debugging: false
-  enable_voice: false
-  enable_vision: false
-  enable_feedback: false
-  enable_agent: false
+  enable_workflow: true
+  enable_skills: true
+  enable_context: true
+  enable_judge: true
+  enable_cognitive: true
+  enable_reflection: true
+  enable_learning: true
+  enable_advanced_memory: true
+  enable_parallel_agents: true
+  enable_rag: true
+  enable_self_improvement: true
+  enable_model_registry: true
+  enable_ai_security: true
+  enable_multimodal: true
+  enable_distributed: true
+  enable_personality: true
+  enable_rlhf: true
+  enable_tools: true
+  enable_consensus: true
+  enable_code_review: true
+  enable_debugging: true
+  enable_voice: true
+  enable_vision: true
+  enable_feedback: true
+  enable_agent: true

@@ -29,6 +29,29 @@ def _yaml_value(section: str, key: str, default: Any = None) -> Any:
     return _YAML_CONFIG.get(section, {}).get(key, default)
 
 
+def _default_model_routing() -> dict[str, str]:
+    primary = _yaml_value("models", "primary", "Qwen/Qwen2.5-0.5B-Instruct")
+    base = {
+        "chat": primary,
+        "code": primary,
+        "math": primary,
+        "search": primary,
+        "document": primary,
+        "agent": primary,
+        "voice": primary,
+    }
+    yaml_routing = _yaml_value("models", "routing", {}) or {}
+    base.update(yaml_routing)
+    return base
+
+
+def _default_model_fallbacks() -> list[str]:
+    configured = _yaml_value("models", "fallback_models", None)
+    if configured:
+        return list(configured)
+    return ["sshleifer/tiny-gpt2"]
+
+
 def _build_feature_gates() -> "FeatureGates":
     env_features = FeatureGates()
     merged = env_features.model_dump()
@@ -62,6 +85,7 @@ class ModelSettings(BaseSettings):
     device: str = Field(default_factory=lambda: _yaml_value("models", "device", "auto"))
     cache_size: int = Field(default_factory=lambda: _yaml_value("models", "cache_size", 1))
     idle_timeout: int = Field(default_factory=lambda: _yaml_value("models", "idle_timeout", 300))
+    load_timeout_s: int = Field(default_factory=lambda: _yaml_value("models", "load_timeout_s", 180))
     default_max_tokens: int = Field(default_factory=lambda: _yaml_value("models", "default_max_tokens", 512))
     default_temperature: float = Field(
         default_factory=lambda: _yaml_value("models", "default_temperature", 0.7)
@@ -69,6 +93,8 @@ class ModelSettings(BaseSettings):
     primary: str = Field(
         default_factory=lambda: _yaml_value("models", "primary", "Qwen/Qwen2.5-0.5B-Instruct")
     )
+    routing: dict[str, str] = Field(default_factory=_default_model_routing)
+    fallback_models: list[str] = Field(default_factory=_default_model_fallbacks)
 
 
 class MemorySettings(BaseSettings):
@@ -96,6 +122,7 @@ class SecuritySettings(BaseSettings):
 
     enabled: bool = Field(default_factory=lambda: _yaml_value("security", "enabled", True))
     require_auth: bool = Field(default_factory=lambda: _yaml_value("security", "require_auth", False))
+    bandit_scan: bool = Field(default_factory=lambda: _yaml_value("security", "bandit_scan", True))
     prompt_injection_guard: bool = Field(
         default_factory=lambda: _yaml_value("security", "prompt_injection_guard", True)
     )
@@ -128,6 +155,39 @@ class LoggingSettings(BaseSettings):
     format: str = Field(default_factory=lambda: _yaml_value("logging", "format", "text"))
     file: str = Field(default_factory=lambda: _yaml_value("logging", "file", "logs/superai.log"))
     rotation: str = Field(default_factory=lambda: _yaml_value("logging", "rotation", "10 MB"))
+
+
+class AgentSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="AGENT__")
+
+    enabled: bool = Field(default_factory=lambda: _yaml_value("agent", "enabled", True))
+    max_iterations: int = Field(default_factory=lambda: _yaml_value("agent", "max_iterations", 15))
+    tool_timeout: int = Field(default_factory=lambda: _yaml_value("agent", "tool_timeout", 15))
+
+
+class VoiceSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="VOICE__")
+
+    enabled: bool = Field(default_factory=lambda: _yaml_value("voice", "enabled", False))
+    stt_model: str = Field(default_factory=lambda: _yaml_value("voice", "stt_model", "base"))
+    tts_engine: str = Field(default_factory=lambda: _yaml_value("voice", "tts_engine", "gtts"))
+    language: str = Field(default_factory=lambda: _yaml_value("voice", "language", "en"))
+    tts_rate: int = Field(default_factory=lambda: _yaml_value("voice", "tts_rate", 180))
+    tts_volume: float = Field(default_factory=lambda: _yaml_value("voice", "tts_volume", 1.0))
+
+
+class SkillsSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="SKILLS__")
+
+    builtin_dir: str = Field(
+        default_factory=lambda: _yaml_value("skills", "builtin_dir", "backend/skills/builtin/")
+    )
+    custom_dir: str = Field(
+        default_factory=lambda: _yaml_value("skills", "custom_dir", "data/custom_skills")
+    )
+    auto_activate_all: bool = Field(
+        default_factory=lambda: _yaml_value("skills", "auto_activate_all", True)
+    )
 
 
 class FeatureGates(BaseSettings):
@@ -182,6 +242,9 @@ class AppSettings(BaseSettings):
     security: SecuritySettings = Field(default_factory=SecuritySettings)
     personality: PersonalitySettings = Field(default_factory=PersonalitySettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
+    agent: AgentSettings = Field(default_factory=AgentSettings)
+    voice: VoiceSettings = Field(default_factory=VoiceSettings)
+    skills: SkillsSettings = Field(default_factory=SkillsSettings)
     features: FeatureGates = Field(default_factory=_build_feature_gates)
 
     @model_validator(mode="after")

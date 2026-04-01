@@ -46,13 +46,19 @@ if _feature_enabled("enable_vision", "enable_multimodal"):
 
 if _feature_enabled("enable_context"):
     from backend.api.v1 import files
+    from backend.api.v1 import context_api
 
     api_router.include_router(files.router, prefix="/files", tags=["Files"])
+    api_router.include_router(context_api.router, prefix="/context", tags=["Context"])
 
 if _feature_enabled("enable_code_review", "enable_debugging"):
     from backend.api.v1 import code
+    from backend.api.v1 import code_review_api
+    from backend.api.v1 import debug_api
 
     api_router.include_router(code.router, prefix="/code", tags=["Code"])
+    api_router.include_router(code_review_api.router, prefix="/code-review", tags=["Code Review"])
+    api_router.include_router(debug_api.router, prefix="/debug", tags=["Debug"])
 
 if _feature_enabled("enable_feedback", "enable_rlhf"):
     from backend.api.v1 import feedback
@@ -63,6 +69,21 @@ if _feature_enabled("enable_reflection", "enable_self_improvement", "enable_mode
     from backend.api.v1 import intelligence
 
     api_router.include_router(intelligence.router, prefix="/intelligence", tags=["Intelligence"])
+
+if _feature_enabled("enable_learning"):
+    from backend.api.v1 import learning
+
+    api_router.include_router(learning.router, prefix="/learning", tags=["Learning"])
+
+if _feature_enabled("enable_rag"):
+    from backend.api.v1 import knowledge
+
+    api_router.include_router(knowledge.router, prefix="/knowledge", tags=["Knowledge"])
+
+if _feature_enabled("enable_ai_security"):
+    from backend.api.v1 import security_info
+
+    api_router.include_router(security_info.router, prefix="/security", tags=["Security"])
 
 if _feature_enabled("enable_personality", "enable_parallel_agents"):
     from backend.api.v1 import personality_api

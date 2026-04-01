@@ -53,8 +53,10 @@ class WorkflowPlanner:
                 model_name="", prompt=prompt,
                 max_tokens=1200, temperature=0.3,
             )
+            if self._looks_degraded(answer):
+                return self._fallback_plan(design)
             tasks = self._parse_tasks(answer)
-            return tasks[:max_tasks]
+            return (tasks or self._fallback_plan(design))[:max_tasks]
         except Exception as e:
             logger.warning("Plan generation failed", error=str(e))
             return self._fallback_plan(design)
@@ -105,9 +107,38 @@ class WorkflowPlanner:
     def _fallback_plan(design: str) -> List[PlanTask]:
         """Minimal plan when model is unavailable."""
         return [
-            PlanTask(description="Set up project structure", verification="Directories exist"),
-            PlanTask(description="Implement core logic", verification="Unit tests pass"),
-            PlanTask(description="Add API endpoints", verification="Endpoints respond"),
-            PlanTask(description="Write tests", verification="All tests green"),
-            PlanTask(description="Integration testing", verification="Full flow works"),
+            PlanTask(
+                description="Set up project structure",
+                target_files=["README.md", "backend/", "frontend/"],
+                verification="Directories and base files exist",
+            ),
+            PlanTask(
+                description="Implement core logic",
+                target_files=["backend/main.py"],
+                verification="Core functionality responds successfully",
+                dependencies=["1"],
+            ),
+            PlanTask(
+                description="Add API endpoints",
+                target_files=["backend/api/"],
+                verification="Endpoints respond",
+                dependencies=["2"],
+            ),
+            PlanTask(
+                description="Write tests",
+                target_files=["tests/"],
+                verification="All tests green",
+                dependencies=["2", "3"],
+            ),
+            PlanTask(
+                description="Integration testing",
+                target_files=["frontend/", "backend/"],
+                verification="Full flow works",
+                dependencies=["4"],
+            ),
         ]
+
+    @staticmethod
+    def _looks_degraded(text: str) -> bool:
+        lowered = text.lower()
+        return "degraded model mode" in lowered or "server is healthy" in lowered

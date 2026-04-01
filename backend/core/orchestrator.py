@@ -24,7 +24,15 @@ from typing import AsyncGenerator, List, Optional
 from loguru import logger
 from backend.config.settings import PersonalitySettings
 from backend.core.exceptions import SecurityViolationError, ModelInferenceError
-from backend.models.schemas import ChatRequest, ChatResponse, CodeRequest, CodeResponse, FileProcessResponse, TaskType
+from backend.models.schemas import (
+    ChatRequest,
+    ChatResponse,
+    CodeRequest,
+    CodeResponse,
+    FileProcessResponse,
+    MemoryStoreRequest,
+    TaskType,
+)
 
 
 class OrchestratorV11:
@@ -81,6 +89,11 @@ class OrchestratorV11:
             return await self._models.count_tokens(model_name, text)
         return max(1, len(text.split()))
 
+    def _resolved_model_name(self, model_name: str) -> str:
+        if hasattr(self._models, "resolve_model_name"):
+            return self._models.resolve_model_name(model_name)
+        return model_name
+
     def _should_fast_path(self, req: ChatRequest, task_type: TaskType) -> bool:
         if task_type != TaskType.CHAT:
             return False
@@ -128,6 +141,7 @@ class OrchestratorV11:
         prompt = self._build_prompt(req.prompt, task_type, context, pa=pa)
         model_name = self.select_model_for_task(task_type, req.force_model)
         answer, tokens = await self._models.infer(model_name, prompt, req.max_tokens, req.temperature)
+        resolved_model_name = self._resolved_model_name(model_name)
 
         if self._security and self._security.cfg.output_filter:
             answer = self._security.filter_output(answer)
@@ -138,13 +152,13 @@ class OrchestratorV11:
             await self._memory.save_turn(sid, req.prompt, answer, response_id=rid)
         ms = (time.perf_counter() - t0) * 1000
         if self._monitoring:
-            self._monitoring.record_request(task_type=task_type.value, model=model_name, latency_ms=ms, tokens=tokens)
-        logger.debug("Orchestrator fast path used", session_id=sid, model=model_name)
+            self._monitoring.record_request(task_type=task_type.value, model=resolved_model_name, latency_ms=ms, tokens=tokens)
+        logger.debug("Orchestrator fast path used", session_id=sid, model=resolved_model_name)
         return ChatResponse(
             answer=answer,
             session_id=sid,
             task_type=task_type.value,
-            model_used=model_name,
+            model_used=resolved_model_name,
             tokens_used=tokens,
             latency_ms=round(ms, 2),
             response_id=rid,
@@ -170,6 +184,7 @@ class OrchestratorV11:
             yield tok
 
         full_text = "".join(full)
+        resolved_model_name = self._resolved_model_name(model_name)
         if self._security and self._security.cfg.output_filter:
             full_text = self._security.filter_output(full_text)
         if self._personality:
@@ -177,15 +192,15 @@ class OrchestratorV11:
 
         if self._memory:
             await self._memory.save_turn(sid, req.prompt, full_text, response_id=rid)
-        tokens = await self.count_text_tokens(model_name, full_text)
+        tokens = await self.count_text_tokens(resolved_model_name, full_text)
         if self._monitoring:
             self._monitoring.record_request(
                 task_type=task_type.value,
-                model=model_name,
+                model=resolved_model_name,
                 latency_ms=(time.perf_counter() - t0) * 1000,
                 tokens=tokens,
             )
-        logger.debug("Orchestrator fast stream path used", session_id=sid, model=model_name)
+        logger.debug("Orchestrator fast stream path used", session_id=sid, model=resolved_model_name)
 
     async def chat(self, req: ChatRequest) -> ChatResponse:
         t0=time.perf_counter(); sid=req.session_id or str(uuid.uuid4())[:8]
@@ -280,6 +295,7 @@ class OrchestratorV11:
                 if self._monitoring:
                     self._monitoring.record_error("inference")
                 raise ModelInferenceError(str(e)) from e
+            model_name = self._resolved_model_name(model_name)
 
         # [F1] Self-reflection
         confidence=1.0; reflection_notes=""
@@ -389,6 +405,7 @@ class OrchestratorV11:
         async for tok in self._models.stream(model_name,prompt,req.max_tokens,req.temperature):
             full.append(tok); yield tok
         full_text="".join(full)
+        model_name=self._resolved_model_name(model_name)
 
         # [F1] Self-reflection on completed stream
         confidence=1.0
@@ -469,12 +486,29 @@ class OrchestratorV11:
             selected_agents=agents,model_name=model_name or self._router.select_model(TaskType.AGENT))
 
     async def process_file(self,filename,file_bytes,question,session_id)->FileProcessResponse:
+        file_id = str(uuid.uuid4())[:8]
         text=await self._extract_file_text(filename,file_bytes)
         prompt=f"Document:\n{text[:3000]}\n\nQuestion: {question}\nAnswer:"
         model=self._router.select_model(TaskType.DOCUMENT)
         answer,_=await self._models.infer(model,prompt,max_tokens=512)
-        return FileProcessResponse(filename=filename,file_type=filename.rsplit(".",1)[-1].lower(),
-                                   summary=answer,content=text[:2000])
+        if self._looks_degraded_answer(answer):
+            answer = self._fallback_file_answer(filename, text, question)
+        if self._memory and text and not text.startswith("[Cannot extract"):
+            await self._memory.store(
+                MemoryStoreRequest(
+                    content=text[:20000],
+                    session_id=session_id,
+                    tags=[f"file:{file_id}", f"filename:{filename}"],
+                    priority=1.2,
+                )
+            )
+        return FileProcessResponse(
+            file_id=file_id,
+            filename=filename,
+            file_type=filename.rsplit(".",1)[-1].lower(),
+            summary=answer,
+            content=text[:2000],
+        )
 
     async def file_qa(self,file_id,question):
         if hasattr(self._memory, "search_by_tag"):
@@ -482,9 +516,13 @@ class OrchestratorV11:
             ct = "\n".join(e.content for e in ctx)
         else:
             ct = ""
+        if not ct:
+            return "No stored document context was found for this file. Upload the file again to start a Q&A session."
         answer,_=await self._models.infer(
             self._router.select_model(TaskType.DOCUMENT),
             f"Context:\n{ct}\n\nQuestion: {question}\nAnswer:")
+        if self._looks_degraded_answer(answer):
+            return self._fallback_file_answer(file_id, ct, question)
         return answer
 
     def _build_prompt(self,prompt,task_type,context,rag_ctx="",enriched="",pa=""):
@@ -517,6 +555,32 @@ class OrchestratorV11:
         except Exception as e:
             logger.warning("File extract failed",ext=ext,error=str(e))
         return f"[Cannot extract from {filename}]"
+
+    @staticmethod
+    def _looks_degraded_answer(text: str) -> bool:
+        lowered = text.lower()
+        return "degraded model mode" in lowered or "server is healthy" in lowered
+
+    @staticmethod
+    def _fallback_file_answer(filename: str, text: str, question: str) -> str:
+        if text.startswith("[Cannot extract"):
+            return text
+
+        cleaned_lines = [line.strip() for line in text.splitlines() if line.strip()]
+        snippet = " ".join(cleaned_lines[:4])[:500] if cleaned_lines else text[:500]
+        question_lower = question.lower()
+
+        if any(token in question_lower for token in ("summarize", "summary", "summarise", "overview")):
+            return f"Summary of {filename}: {snippet}" if snippet else f"{filename} was uploaded successfully."
+
+        if any(token in question_lower for token in ("what", "which", "who", "when", "where", "why", "how")):
+            return (
+                f"Based on the extracted content from {filename}, the most relevant text is: {snippet}"
+                if snippet
+                else f"{filename} was uploaded, but no readable text was extracted."
+            )
+
+        return f"Document processed for {filename}. Key content: {snippet}" if snippet else f"{filename} was uploaded successfully."
 
     def _active_features(self):
         return [k for k,v in {

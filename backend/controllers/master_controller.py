@@ -63,15 +63,16 @@ class MasterController:
             yield token
 
         answer = "".join(answer_parts).strip() or self._fallback_answer()
+        resolved_model_name = self._resolved_model_name(state["model_name"])
         await self._finalize_response(
             session_id=state["session_id"],
             prompt=req.prompt,
             answer=answer,
             response_id=state["response_id"],
             task_type=state["task_type"],
-            model_name=state["model_name"],
+            model_name=resolved_model_name,
             started_at=state["started_at"],
-            tokens=await self._count_tokens(state["model_name"], answer),
+            tokens=await self._count_tokens(resolved_model_name, answer),
         )
 
     async def _process_minimal(self, req: ChatRequest) -> ChatResponse:
@@ -82,13 +83,14 @@ class MasterController:
             max_tokens=state["max_tokens"],
             temperature=state["temperature"],
         )
+        resolved_model_name = self._resolved_model_name(state["model_name"])
         return await self._finalize_response(
             session_id=state["session_id"],
             prompt=req.prompt,
             answer=answer,
             response_id=state["response_id"],
             task_type=state["task_type"],
-            model_name=state["model_name"],
+            model_name=resolved_model_name,
             started_at=state["started_at"],
             tokens=tokens,
         )
@@ -117,6 +119,11 @@ class MasterController:
             if self._monitoring:
                 self._monitoring.record_error("inference")
             return self._fallback_answer(), 0
+
+    def _resolved_model_name(self, model_name: str) -> str:
+        if self._models and hasattr(self._models, "resolve_model_name"):
+            return self._models.resolve_model_name(model_name)
+        return model_name
 
     @staticmethod
     def _fallback_answer() -> str:
@@ -237,10 +244,12 @@ class MasterController:
         )
 
     def get_status(self) -> dict[str, Any]:
+        loaded = self._models.loaded_models() if self._models else []
         return {
             "mode": self.mode,
             "is_minimal": self.is_minimal,
-            "model_loaded": self._models.loaded_models() if self._models else [],
+            "model_loaded": loaded,
+            "models_loaded": loaded,
             "memory_enabled": bool(self._memory) and settings.memory.enabled,
             "security_enabled": settings.security.enabled,
             "features": list(settings.active_features.keys()),

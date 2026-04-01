@@ -34,12 +34,15 @@ class ServiceContainer:
         from backend.controllers.master_controller import MasterController
         from backend.core.security import SecurityEngine
         from backend.models.loader import ModelLoader
+        from backend.services.feedback_service import FeedbackService
         from backend.services.monitoring_service import MonitoringService
         from backend.services.simple_memory_service import SimpleMemoryService
 
         self._monitoring_service = MonitoringService()
         self._model_loader = ModelLoader(cfg=settings.models)
         self._security_engine = SecurityEngine(cfg=settings.security)
+        self._feedback_service = FeedbackService(cfg=settings.feedback)
+        await self._feedback_service.init()
 
         if settings.memory.enabled:
             self._memory_service = SimpleMemoryService(cfg=settings.memory)
@@ -90,13 +93,24 @@ class ServiceContainer:
         for flag, label, fn in loaders:
             if enabled.get(flag):
                 await self._try_load(label, fn)
+        if enabled.get("enable_agent") or enabled.get("enable_parallel_agents"):
+            await self._try_load("AgentService", self._load_agents)
+        if enabled.get("enable_voice"):
+            await self._try_load("Voice", self._load_voice)
+        if enabled.get("enable_vision") or enabled.get("enable_multimodal"):
+            await self._try_load("Vision", self._load_vision)
 
     async def _try_load(self, name: str, fn) -> None:
         try:
             await fn()
             logger.info("Advanced module loaded", module=name)
         except Exception as exc:
-            logger.warning("Advanced module skipped", module=name, reason=str(exc))
+            logger.warning(
+                "Advanced module skipped",
+                module=name,
+                reason=str(exc),
+                error_type=type(exc).__name__,
+            )
 
     async def _load_reflection(self) -> None:
         from backend.intelligence.reflection_engine import ReflectionEngine
@@ -192,8 +206,14 @@ class ServiceContainer:
 
     async def _load_consensus(self) -> None:
         from backend.consensus.consensus_engine import ConsensusEngine
+        from backend.consensus.consensus_engine import VotingStrategy
 
-        self._consensus_engine = ConsensusEngine(loader=self._model_loader, model_names=[], strategy=None)
+        model_names = list(dict.fromkeys([settings.models.primary]))
+        self._consensus_engine = ConsensusEngine(
+            loader=self._model_loader,
+            model_names=model_names,
+            strategy=VotingStrategy.AUTO,
+        )
 
     async def _load_workflow(self) -> None:
         from backend.workflow.engine import WorkflowEngine
@@ -207,7 +227,13 @@ class ServiceContainer:
     async def _load_skills(self) -> None:
         from backend.skills.skill_registry import SkillRegistry
 
-        self._skill_registry = SkillRegistry(skills_dir="backend/skills/builtin/", auto_load=True)
+        self._skill_registry = SkillRegistry(skills_dir=settings.skills.builtin_dir, auto_load=True)
+        custom_dir = Path(settings.skills.custom_dir)
+        if custom_dir.exists():
+            self._skill_registry.load(str(custom_dir))
+        if settings.skills.auto_activate_all:
+            for skill in self._skill_registry.list_all():
+                skill.auto_activate = True
 
     async def _load_code_review(self) -> None:
         from backend.code_review.code_review import CodeReviewEngine
@@ -234,7 +260,31 @@ class ServiceContainer:
 
         self._bdi_engine = BDICognitiveEngine(model_loader=self._model_loader)
 
+    async def _load_agents(self) -> None:
+        from backend.agents.coordinator import AgentCoordinator
+        from backend.services.agent_service import AgentService
+
+        self._coordinator = AgentCoordinator()
+        self._agent_service = AgentService(
+            model_loader=self._model_loader,
+            memory_svc=self._memory_service,
+            coordinator=self._coordinator,
+            cfg=settings.agent,
+        )
+
+    async def _load_voice(self) -> None:
+        from backend.services.voice_service import VoiceService
+
+        self._voice_service = VoiceService(cfg=settings.voice)
+
+    async def _load_vision(self) -> None:
+        from backend.services.vision_service import VisionService
+
+        self._vision_service = VisionService(model_loader=self._model_loader, cfg=settings.models)
+
     async def shutdown(self) -> None:
+        if getattr(self, "_feedback_service", None):
+            await self._feedback_service.close()
         if self._memory_service:
             await self._memory_service.close()
         if getattr(self, "_unified_memory", None):
@@ -250,7 +300,7 @@ class ServiceContainer:
             await self._task_queue.stop()
         if getattr(self, "_rlhf_pipeline", None):
             await self._rlhf_pipeline.stop()
-        if getattr(self, "_ai_security", None):
+        if getattr(self, "_ai_security", None) and hasattr(self._ai_security, "close"):
             await self._ai_security.close()
         logger.info("SuperAI runtime shutdown complete")
 
@@ -273,11 +323,11 @@ class ServiceContainer:
         from backend.core.orchestrator import OrchestratorV11
         from backend.core.task_router import TaskRouter
 
-        task_router = TaskRouter()
+        task_router = TaskRouter(self._routing_config())
         self._orchestrator = OrchestratorV11(
             model_loader=self._model_loader,
             memory_svc=self._memory_service,
-            agent_svc=getattr(self, "_coordinator", None),
+            agent_svc=getattr(self, "_agent_service", None),
             voice_svc=getattr(self, "_voice_service", None),
             vision_svc=getattr(self, "_vision_service", None),
             security_engine=self._security_engine,
@@ -301,6 +351,11 @@ class ServiceContainer:
         )
         setattr(self._master_controller, "_orchestrator", self._orchestrator)
         logger.info("Advanced orchestrator wired")
+
+    def _routing_config(self) -> dict[str, str]:
+        routing = dict(settings.models.routing)
+        routing.setdefault("chat", settings.models.primary)
+        return routing
 
     @property
     def master_controller(self):
@@ -351,7 +406,7 @@ def get_model_loader():
 
 
 def get_feedback_service():
-    return None
+    return _optional_get("_feedback_service")
 
 
 def get_orchestrator():

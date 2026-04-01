@@ -7,6 +7,7 @@ Includes SkillBundle system for role-based skill grouping.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -138,22 +139,20 @@ class SkillRegistry:
     # ── Auto-activation ───────────────────────────────────────────
 
     def match(self, prompt: str, max_skills: int = 3) -> List[Skill]:
-        """Find skills that match a prompt based on trigger keywords."""
+        """Find skills that match a prompt using keywords plus semantic overlap."""
         prompt_lower = prompt.lower()
-        scored: list[tuple[int, Skill]] = []
+        prompt_tokens = self._tokenize(prompt_lower)
+        scored: list[tuple[float, int, str, Skill]] = []
 
         for skill in self._skills.values():
             if not skill.auto_activate:
                 continue
-            score = 0
-            for keyword in skill.trigger_keywords:
-                if keyword.lower() in prompt_lower:
-                    score += 1
-            if score > 0:
-                scored.append((score + skill.priority, skill))
+            score, matched = self._score_skill(skill, prompt_lower, prompt_tokens)
+            if matched:
+                scored.append((score, skill.priority, skill.name, skill))
 
-        scored.sort(key=lambda x: -x[0])
-        return [s for _, s in scored[:max_skills]]
+        scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
+        return [skill for _, _, _, skill in scored[:max_skills]]
 
     def enrich_prompt(self, system_prompt: str, user_prompt: str, max_skills: int = 3) -> str:
         """Inject matching skill instructions into the system prompt."""
@@ -213,6 +212,70 @@ class SkillRegistry:
             return []
         return [self._skills[sn] for sn in bundle.skill_names if sn in self._skills]
 
+    @staticmethod
+    def _tokenize(text: str) -> List[str]:
+        return re.findall(r"[a-z0-9][a-z0-9+._-]*", text.lower())
+
+    def _score_skill(self, skill: Skill, prompt_lower: str, prompt_tokens: List[str]) -> tuple[float, bool]:
+        prompt_token_set = set(prompt_tokens)
+        score = 0.0
+        matched = False
+
+        for keyword in skill.trigger_keywords:
+            keyword_lower = keyword.lower().strip()
+            if not keyword_lower:
+                continue
+            keyword_tokens = self._tokenize(keyword_lower)
+
+            if " " in keyword_lower:
+                if keyword_lower in prompt_lower:
+                    score += 4.5 + min(len(keyword_tokens), 3)
+                    matched = True
+                elif keyword_tokens:
+                    overlap = sum(1 for token in keyword_tokens if token in prompt_token_set)
+                    if overlap:
+                        score += overlap * 1.5
+                        matched = True
+            else:
+                if keyword_lower in prompt_token_set:
+                    score += 3.5
+                    matched = True
+                elif len(keyword_lower) > 3 and keyword_lower in prompt_lower:
+                    score += 1.0
+                    matched = True
+
+        name_tokens = self._tokenize(skill.name.replace("-", " "))
+        for token in name_tokens:
+            if token in prompt_token_set:
+                score += 3.0
+                matched = True
+
+        if skill.name.lower() in prompt_lower:
+            score += 4.0
+            matched = True
+
+        category_tokens = self._tokenize(skill.category)
+        for token in category_tokens:
+            if token in prompt_token_set:
+                score += 1.5
+                matched = True
+
+        description_tokens = {
+            token
+            for token in self._tokenize(skill.description)
+            if len(token) > 3 and token not in {
+                "with", "from", "that", "this", "your", "into",
+                "best", "practices", "system", "using", "build",
+                "development", "engineering", "complete",
+            }
+        }
+        overlap = sum(1 for token in description_tokens if token in prompt_token_set)
+        if overlap:
+            score += min(overlap, 4) * 0.75
+            matched = True
+
+        return score + float(skill.priority), matched
+
     # ── Skill creation ────────────────────────────────────────────
 
     def create_skill(
@@ -238,4 +301,3 @@ class SkillRegistry:
         )
         self.register(skill)
         return skill
-

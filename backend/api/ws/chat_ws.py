@@ -108,6 +108,7 @@ async def ws_chat(ws: WebSocket) -> None:
                         await _mgr.send(ws, {"type": "token", "data": token})
 
                     answer = "".join(chunks)
+                    model_name = orchestrator._resolved_model_name(model_name)
                     tokens_used = await orchestrator.count_text_tokens(model_name, answer)
                     final = ChatResponse(
                         answer=answer,

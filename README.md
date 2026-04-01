@@ -102,7 +102,7 @@ The backend has been stabilized across the simplified runtime and the advanced o
 The frontend now matches the stable backend path instead of assuming every advanced feature is live:
 
 - stable minimal-mode panel loading in [`page.tsx`](/B:/SuperAI/superai_v11_complete/superai_v11_final/frontend/src/app/page.tsx)
-- production build compatibility settings in [`next.config.mjs`](/B:/SuperAI/superai_v11_complete/superai_v11_final/frontend/next.config.mjs)
+- production build compatibility settings in [`next.config.js`](/B:/SuperAI/superai_v11_complete/superai_v11_final/frontend/next.config.js)
 - isolated manual type-check config in [`tsconfig.typecheck.json`](/B:/SuperAI/superai_v11_complete/superai_v11_final/frontend/tsconfig.typecheck.json)
 - cleaned package metadata in [`package.json`](/B:/SuperAI/superai_v11_complete/superai_v11_final/frontend/package.json)
 - updated app metadata and branding in:

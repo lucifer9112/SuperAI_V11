@@ -33,7 +33,7 @@ const VoiceUI = dynamic(() => import("@/components/voice/VoiceUI").then((mod) =>
   loading: () => <PanelLoading />,
 });
 
-const ENABLE_ADVANCED_TABS = process.env.NEXT_PUBLIC_ENABLE_ADVANCED_TABS === "true";
+const ENABLE_ADVANCED_TABS = process.env.NEXT_PUBLIC_ENABLE_ADVANCED_TABS !== "false";
 
 const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = ENABLE_ADVANCED_TABS
   ? [

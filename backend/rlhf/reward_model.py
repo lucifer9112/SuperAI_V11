@@ -89,7 +89,7 @@ class NeuralRewardModel:
                 else:
                     logger.info("Reward head initialised (untrained)")
                 return embedder, head
-            self._embedder, self._head = await asyncio.to_thread(_load)
+            self._embedder, self._head = await asyncio.wait_for(asyncio.to_thread(_load), timeout=20)
             self._ready = True
             return self._path.exists()
         except Exception as e:

@@ -195,6 +195,32 @@ class SimpleMemoryService:
             for row in rows
         ]
 
+    async def search_by_tag(self, tag: str, top_k: int = 5) -> list[MemoryEntry]:
+        db = self._require_db()
+        pattern = f'%"{tag}"%'
+        async with db.execute(
+            f"""
+            SELECT id, content, priority, reinforced, created_at
+            FROM {self.MEM_TABLE}
+            WHERE tags_json LIKE ?
+            ORDER BY (priority + reinforced) DESC, created_at DESC
+            LIMIT ?
+            """,
+            (pattern, max(1, top_k)),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [
+            MemoryEntry(
+                id=row["id"],
+                content=row["content"],
+                score=round(float(row["priority"] + row["reinforced"]), 2),
+                priority=float(row["priority"]),
+                source="memory",
+                timestamp=float(row["created_at"]),
+            )
+            for row in rows
+        ]
+
     async def delete(self, entry_id: str) -> bool:
         db = self._require_db()
         cursor = await db.execute(f"DELETE FROM {self.MEM_TABLE} WHERE id = ?", (entry_id,))

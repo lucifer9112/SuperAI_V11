@@ -115,13 +115,21 @@ class ToolExecutor:
 
 async def _web_search(query: str, max_results: int = 5) -> str:
     def _run():
-        from duckduckgo_search import DDGS
-        with DDGS() as d:
-            results = list(d.text(query, max_results=max_results))
-        if not results: return "No results found."
-        return "\n\n".join(
-            f"**{r.get('title','')}**\n{r.get('body','')[:300]}\nURL: {r.get('href','')}"
-            for r in results)
+        try:
+            from duckduckgo_search import DDGS
+
+            with DDGS() as d:
+                results = list(d.text(query, max_results=max_results))
+            if not results:
+                return "No live web results found."
+            return "\n\n".join(
+                f"**{r.get('title','')}**\n{r.get('body','')[:300]}\nURL: {r.get('href','')}"
+                for r in results)
+        except Exception as exc:
+            return (
+                "Live web search is unavailable in this environment. "
+                f"Fallback note for query '{query}': {exc}"
+            )
     return await asyncio.to_thread(_run)
 
 

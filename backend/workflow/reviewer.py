@@ -66,6 +66,8 @@ class WorkflowReviewer:
                 model_name="", prompt=prompt,
                 max_tokens=600, temperature=0.2,
             )
+            if self._looks_degraded(answer):
+                return self._heuristic_review(output, task_description)
             return self._parse_review(answer)
         except Exception as e:
             logger.warning("Review failed, using heuristic", error=str(e))
@@ -170,3 +172,8 @@ class WorkflowReviewer:
             summary="Heuristic review (no model available)",
             score=max(0.0, min(1.0, score)),
         )
+
+    @staticmethod
+    def _looks_degraded(text: str) -> bool:
+        lowered = text.lower()
+        return "degraded model mode" in lowered or "server is healthy" in lowered

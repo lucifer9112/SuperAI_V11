@@ -240,6 +240,37 @@ class TestWorkflowEngine:
         assert wf.phase in (WorkflowPhase.EXECUTE, WorkflowPhase.REVIEW)
 
     @pytest.mark.asyncio
+    async def test_execute_can_be_called_multiple_times(self):
+        wf = self.engine.create("Build a dashboard app")
+        await self.engine.brainstorm(wf.workflow_id)
+        await self.engine.plan(wf.workflow_id)
+
+        first = await self.engine.execute(wf.workflow_id, batch_size=1)
+        second = await self.engine.execute(wf.workflow_id, batch_size=1)
+
+        from backend.workflow.models import WorkflowPhase
+        assert first.executions
+        assert second.executions
+        assert second.phase in (WorkflowPhase.EXECUTE, WorkflowPhase.REVIEW)
+
+    @pytest.mark.asyncio
+    async def test_review_transitions_to_complete_after_all_tasks_done(self):
+        wf = self.engine.create("Build an analytics dashboard")
+        await self.engine.brainstorm(wf.workflow_id)
+        await self.engine.plan(wf.workflow_id)
+
+        while True:
+            wf = await self.engine.execute(wf.workflow_id, batch_size=10)
+            if wf.phase.value == "review":
+                break
+
+        wf = await self.engine.review(wf.workflow_id)
+
+        from backend.workflow.models import WorkflowPhase
+        assert wf.final_review is not None
+        assert wf.phase == WorkflowPhase.COMPLETE
+
+    @pytest.mark.asyncio
     async def test_nonexistent_workflow_raises(self):
         with pytest.raises(ValueError, match="not found"):
             await self.engine.brainstorm("fake-id")

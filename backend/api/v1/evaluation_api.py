@@ -4,6 +4,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import List, Optional
 
+from backend.models.schemas import APIResponse
+
 router = APIRouter()
 
 
@@ -35,6 +37,18 @@ class PairwiseRequest(BaseModel):
 class CodeEvalRequest(BaseModel):
     code: str
     task: str = ""
+
+
+@router.get("/status", response_model=APIResponse)
+async def evaluation_status():
+    judge = _get_judge()
+    return APIResponse(
+        data={
+            "status": "ok",
+            "judge_loaded": judge is not None,
+            "mode": "llm" if getattr(judge, "_models", None) is not None else "heuristic",
+        }
+    )
 
 
 @router.post("/evaluate")

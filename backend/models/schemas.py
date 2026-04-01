@@ -159,6 +159,7 @@ class CodeResponse(SchemaModel):
 
 
 class FileProcessResponse(SchemaModel):
+    file_id: str = ""
     filename: str
     file_type: str
     summary: str

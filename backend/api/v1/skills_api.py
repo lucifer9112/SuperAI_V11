@@ -71,8 +71,9 @@ async def match_skills(req: MatchReq):
 @router.post("/create")
 async def create_skill(req: CreateSkillReq):
     try:
+        from backend.config.settings import settings
         skill = _get_registry().create_skill(
-            directory="data/custom_skills",
+            directory=settings.skills.custom_dir,
             name=req.name,
             description=req.description,
             triggers=req.triggers,
@@ -89,12 +90,13 @@ async def create_skill(req: CreateSkillReq):
 @router.get("/bundles/list")
 async def list_bundles():
     bundles = _get_registry().list_bundles()
+    active = _get_registry().get_active_bundle()
     return {
         "success": True,
         "data": {
             "bundles": [b.to_dict() for b in bundles],
             "total": len(bundles),
-            "active": None,
+            "active": active.name if active else None,
         },
     }
 
@@ -124,4 +126,3 @@ async def activate_bundle(name: str):
 async def deactivate_bundle():
     _get_registry().deactivate_bundle()
     return {"success": True, "message": "Bundle deactivated"}
-

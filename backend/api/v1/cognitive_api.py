@@ -4,6 +4,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import List, Optional
 
+from backend.models.schemas import APIResponse
+
 router = APIRouter()
 
 
@@ -53,6 +55,20 @@ class ExplainRequest(BaseModel):
 @router.get("/state")
 async def get_cognitive_state():
     return _get_engine().state.to_dict()
+
+
+@router.get("/status", response_model=APIResponse)
+async def get_cognitive_status():
+    state = _get_engine().state.to_dict()
+    summary = state.get("summary", {})
+    return APIResponse(
+        data={
+            "status": "ok",
+            "beliefs": summary.get("active_beliefs", 0),
+            "desires": summary.get("open_desires", 0),
+            "intentions": summary.get("active_intentions", 0),
+        }
+    )
 
 
 @router.post("/believe")

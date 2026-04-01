@@ -94,6 +94,8 @@ class CodeReviewEngine:
                 model_name="", prompt=prompt,
                 max_tokens=800, temperature=0.2,
             )
+            if self._looks_degraded(answer):
+                return self._heuristic_review(code)
             return self._parse_review(answer, max_issues)
         except Exception as e:
             logger.warning("Code review failed", error=str(e))
@@ -114,10 +116,18 @@ class CodeReviewEngine:
                 model_name="", prompt=prompt,
                 max_tokens=400, temperature=0.4,
             )
-            return self._parse_suggestions(answer)
+            if self._looks_degraded(answer):
+                return self._heuristic_suggestions(code)
+            suggestions = self._parse_suggestions(answer)
+            return suggestions or self._heuristic_suggestions(code)
         except Exception as e:
             logger.warning("Suggestion generation failed", error=str(e))
             return self._heuristic_suggestions(code)
+
+    @staticmethod
+    def _looks_degraded(text: str) -> bool:
+        lowered = text.lower()
+        return "degraded model mode" in lowered or "server is healthy" in lowered
 
     # ── Parsing ───────────────────────────────────────────────────
 

@@ -52,7 +52,7 @@ async def status(
             "cpu_pct": cpu,
             "ram_pct": vm.percent,
             "gpu_info": gpu,
-            "models_loaded": controller_status.get("model_loaded", []),
+            "models_loaded": controller_status.get("models_loaded", controller_status.get("model_loaded", [])),
             "memory_enabled": controller_status.get("memory_enabled", False),
             "security_enabled": controller_status.get("security_enabled", True),
             "active_features": controller_status.get("features", []),

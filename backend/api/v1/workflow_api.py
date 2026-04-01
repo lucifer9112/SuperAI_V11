@@ -5,6 +5,7 @@ REST endpoints for the Agentic Workflow Engine.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
+from pydantic import ConfigDict
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
 
@@ -32,6 +33,7 @@ class BrainstormReq(BaseModel):
     answers: Optional[Dict[str, str]] = None
 
 class ExecuteReq(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     batch_size: int = Field(3, ge=1, le=10)
     model_name: str = ""
 

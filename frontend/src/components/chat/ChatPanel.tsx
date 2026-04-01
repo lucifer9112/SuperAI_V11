@@ -163,17 +163,7 @@ export function ChatPanel() {
         setStreaming(false);
       }
     },
-    [
-      addMessage,
-      buildRequest,
-      isLoading,
-      sendREST,
-      setLoading,
-      setStreaming,
-      streamWS,
-      streamingEnabled,
-      updateMessage,
-    ],
+    [addMessage, buildRequest, isLoading, sendREST, setLoading, setStreaming, streamWS, streamingEnabled, updateMessage],
   );
 
   const toggleVoice = async () => {
@@ -198,10 +188,12 @@ export function ChatPanel() {
         const blob = new Blob(chunksRef.current, { type: mimeType });
         stream.getTracks().forEach((track) => track.stop());
         try {
-          const { transcript } = await voiceAPI.stt(blob);
-          if (transcript) {
+          const { transcript, confidence } = await voiceAPI.stt(blob);
+          if (transcript && (confidence ?? 1) > 0) {
             setTranscript(transcript);
             await sendMessage(transcript);
+          } else {
+            toast.error("Speech-to-text is unavailable in this environment");
           }
         } catch {
           toast.error("Voice transcription failed");
@@ -226,10 +218,7 @@ export function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col" style={{ background: "var(--bg)" }}>
-      <div
-        className="flex items-center justify-between border-b px-5 py-3"
-        style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}
-      >
+      <div className="flex items-center justify-between border-b px-5 py-3" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
         <div className="flex items-center gap-2">
           <Zap size={15} className="text-cyan-400" />
           <span className="text-sm font-semibold" style={{ color: "var(--text)" }}>
@@ -239,11 +228,11 @@ export function ChatPanel() {
             <motion.span
               animate={{ opacity: [1, 0.3, 1] }}
               transition={{ repeat: Infinity, duration: 1 }}
-              className="rounded-full px-2 py-0.5 text-xs"
+              className="rounded-full border px-2 py-0.5 text-xs"
               style={{
                 background: "rgba(6,182,212,0.12)",
                 color: "#06b6d4",
-                border: "1px solid rgba(6,182,212,0.25)",
+                borderColor: "rgba(6,182,212,0.25)",
               }}
             >
               streaming
@@ -263,11 +252,7 @@ export function ChatPanel() {
       <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
         <AnimatePresence initial={false}>
           {messages.length === 0 && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex h-full select-none flex-col items-center justify-center gap-3"
-            >
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex h-full select-none flex-col items-center justify-center gap-3">
               <div
                 className="flex h-14 w-14 items-center justify-center rounded-2xl"
                 style={{ background: "rgba(6,182,212,0.1)", border: "1px solid rgba(6,182,212,0.2)" }}
@@ -341,7 +326,7 @@ export function ChatPanel() {
           </button>
         </div>
         <p className="mt-1.5 text-center text-[11px]" style={{ color: "var(--text-dim)" }}>
-          SuperAI V11 · Stable AI assistant
+          SuperAI V11 - Stable AI assistant
         </p>
       </div>
     </div>

@@ -221,11 +221,14 @@ class ContextCompressor:
         self, original: str, compressed: str,
     ) -> Dict[str, float]:
         """Score compression across 6 dimensions."""
-        orig_words = set(original.lower().split())
-        comp_words = set(compressed.lower().split())
+        orig_tokens = original.lower().split()
+        comp_tokens = compressed.lower().split()
+        orig_words = set(orig_tokens)
+        comp_words = set(comp_tokens)
 
         overlap = len(orig_words & comp_words) / max(len(orig_words), 1)
-        ratio = len(comp_words) / max(len(orig_words), 1)
+        ratio = len(comp_tokens) / max(len(orig_tokens), 1)
+        ratio = max(0.0, min(1.0, ratio))
 
         return {
             "faithfulness": min(1.0, overlap * 1.5),

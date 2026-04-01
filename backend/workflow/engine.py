@@ -14,7 +14,9 @@ from loguru import logger
 from backend.workflow.brainstorm import BrainstormEngine
 from backend.workflow.executor import WorkflowExecutor
 from backend.workflow.models import (
+    IssueSeverity,
     PlanTask,
+    ReviewIssue,
     ReviewResult,
     WorkflowPhase,
     WorkflowState,
@@ -123,7 +125,8 @@ class WorkflowEngine:
         batch = pending[:batch_size]
 
         if not batch:
-            wf.advance(WorkflowPhase.REVIEW)
+            if wf.phase == WorkflowPhase.EXECUTE:
+                wf.advance(WorkflowPhase.REVIEW)
             return wf
 
         context = wf.brainstorm.refined_design if wf.brainstorm else wf.idea
@@ -131,12 +134,36 @@ class WorkflowEngine:
             tasks=batch, context=context, model_name=model_name,
         )
         wf.executions.extend(results)
-        wf.advance(WorkflowPhase.EXECUTE)
+
+        if wf.phase == WorkflowPhase.PLAN:
+            wf.advance(WorkflowPhase.EXECUTE)
+
+        if not any(t.status == "pending" for t in wf.tasks) and wf.phase == WorkflowPhase.EXECUTE:
+            wf.advance(WorkflowPhase.REVIEW)
         return wf
 
     async def review(self, workflow_id: str) -> WorkflowState:
         """Run final review on all completed work."""
         wf = self._require(workflow_id)
+
+        if wf.phase == WorkflowPhase.EXECUTE:
+            wf.advance(WorkflowPhase.REVIEW)
+
+        pending = [task for task in wf.tasks if task.status == "pending"]
+        if pending:
+            wf.final_review = ReviewResult(
+                passed=False,
+                issues=[
+                    ReviewIssue(
+                        severity=IssueSeverity.WARNING,
+                        description=f"{len(pending)} workflow tasks remain pending",
+                        suggestion="Execute the remaining tasks before final review",
+                    )
+                ],
+                summary="Workflow review paused until pending tasks are executed",
+                score=0.4,
+            )
+            return wf
 
         all_output = "\n\n".join(
             f"Task: {e.task_id}\n{e.output[:300]}"
@@ -150,10 +177,8 @@ class WorkflowEngine:
         )
         wf.final_review = review
 
-        if review.passed:
+        if review.passed and wf.phase == WorkflowPhase.REVIEW:
             wf.advance(WorkflowPhase.COMPLETE)
-        else:
-            wf.advance(WorkflowPhase.REVIEW)
 
         return wf
 

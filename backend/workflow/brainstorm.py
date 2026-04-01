@@ -66,7 +66,10 @@ class BrainstormEngine:
             answer, _ = await self._models.infer(
                 model_name="", prompt=prompt, max_tokens=300, temperature=0.7,
             )
-            return self._parse_questions(answer)
+            if self._looks_degraded(answer):
+                return self._fallback_questions(idea)
+            questions = self._parse_questions(answer)
+            return questions or self._fallback_questions(idea)
         except Exception as e:
             logger.warning("Brainstorm question generation failed", error=str(e))
             return self._fallback_questions(idea)
@@ -87,12 +90,14 @@ class BrainstormEngine:
             answer, _ = await self._models.infer(
                 model_name="", prompt=prompt, max_tokens=800, temperature=0.5,
             )
+            if self._looks_degraded(answer):
+                return self._fallback_design(idea, context)
             sections = self._parse_sections(answer)
             return BrainstormResult(
                 idea=idea,
                 questions=list(answers.keys()) if answers else [],
                 refined_design=answer,
-                sections=sections,
+                sections=sections or self._fallback_design(idea, context).sections,
             )
         except Exception as e:
             logger.warning("Brainstorm design refinement failed", error=str(e))
@@ -148,6 +153,20 @@ class BrainstormEngine:
         return BrainstormResult(
             idea=idea,
             questions=[],
-            refined_design=f"## Design for: {idea}\n\n{context or 'Awaiting model inference.'}",
-            sections=[{"title": "Overview", "body": idea}],
+            refined_design=(
+                f"## Overview\n{idea}\n\n"
+                f"## Key Features\n- Core user workflow\n- Clear API surface\n- Testable implementation\n\n"
+                f"## Architecture\n- Frontend client\n- FastAPI backend\n- Shared data storage\n\n"
+                f"## Context\n{context or 'No additional context provided.'}"
+            ),
+            sections=[
+                {"title": "Overview", "body": idea},
+                {"title": "Key Features", "body": "Core user workflow\nClear API surface\nTestable implementation"},
+                {"title": "Architecture", "body": "Frontend client\nFastAPI backend\nShared data storage"},
+            ],
         )
+
+    @staticmethod
+    def _looks_degraded(text: str) -> bool:
+        lowered = text.lower()
+        return "degraded model mode" in lowered or "server is healthy" in lowered

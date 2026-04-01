@@ -124,8 +124,8 @@ export const useSettingsStore = create<SettingsStore>()(
   persist(
     (set) => ({
       theme:            "dark",
-      streamingEnabled: false,
-      voiceEnabled:     false,
+      streamingEnabled: true,
+      voiceEnabled:     true,
       soundFx:          true,
       temperature:      0.7,
       maxTokens:        512,

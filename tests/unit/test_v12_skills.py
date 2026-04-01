@@ -137,6 +137,29 @@ class TestSkillRegistry:
         matched = self.registry.match("review code debug test fix", max_skills=2)
         assert len(matched) <= 2
 
+    def test_match_uses_name_and_description_overlap(self):
+        from backend.skills.skill_loader import Skill
+        from backend.skills.skill_registry import SkillRegistry
+        registry = SkillRegistry(auto_load=False)
+        registry.register(Skill(
+            name="react-patterns",
+            description="React dashboard components and hooks",
+            trigger_keywords=["hooks"],
+            category="frontend",
+            priority=3,
+        ))
+        registry.register(Skill(
+            name="docker-expert",
+            description="Docker containers and deployment pipelines",
+            trigger_keywords=["container"],
+            category="devops",
+            priority=3,
+        ))
+
+        matched = registry.match("Build a React dashboard for analytics", max_skills=2)
+        assert matched
+        assert matched[0].name == "react-patterns"
+
     def test_enrich_prompt(self):
         enriched = self.registry.enrich_prompt(
             "You are an AI.", "debug this error please",

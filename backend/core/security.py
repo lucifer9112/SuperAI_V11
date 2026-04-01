@@ -24,6 +24,16 @@ _HARM = [
     r"(?:weapon|explosive|drug)\s+synthesis",
 ]
 
+_HEURISTIC_CODE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\beval\s*\("), "Use of eval() can execute untrusted input."),
+    (re.compile(r"\bexec\s*\("), "Use of exec() can execute untrusted code."),
+    (re.compile(r"os\.system\s*\("), "os.system() may execute shell commands unsafely."),
+    (re.compile(r"subprocess\.(?:run|Popen|call)\s*\([^)]*shell\s*=\s*True", re.IGNORECASE | re.DOTALL), "subprocess with shell=True increases command injection risk."),
+    (re.compile(r"yaml\.load\s*\("), "yaml.load() without a safe loader can be unsafe."),
+    (re.compile(r"pickle\.loads?\s*\("), "pickle deserialization can execute arbitrary code."),
+    (re.compile(r"(password|secret|token|api_key)\s*=\s*['\"][^'\"]+['\"]", re.IGNORECASE), "Possible hardcoded secret found in source."),
+]
+
 
 def _normalize_text(text: str) -> str:
     return unicodedata.normalize("NFKC", text).lower()
@@ -56,9 +66,16 @@ class SecurityEngine:
                 return "[Response filtered by safety system]"
         return text
 
+    def _heuristic_scan_code(self, code: str) -> List[str]:
+        issues: List[str] = []
+        for pattern, message in _HEURISTIC_CODE_PATTERNS:
+            if pattern.search(code):
+                issues.append(message)
+        return issues
+
     async def scan_code(self, code: str, language: str = "python") -> List[str]:
         if not self.cfg.bandit_scan or language.lower() != "python":
-            return []
+            return self._heuristic_scan_code(code) if language.lower() == "python" else []
         issues: List[str] = []
         with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as f:
             f.write(code)
@@ -69,6 +86,7 @@ class SecurityEngine:
             issues = [l.strip() for l in r.stdout.splitlines() if l.startswith(">>")]
         except Exception as e:
             logger.warning("bandit scan skipped", error=str(e))
+            issues = self._heuristic_scan_code(code)
         finally:
             Path(tmp).unlink(missing_ok=True)
         return issues
