@@ -95,6 +95,9 @@ class ModelSettings(BaseSettings):
     )
     routing: dict[str, str] = Field(default_factory=_default_model_routing)
     fallback_models: list[str] = Field(default_factory=_default_model_fallbacks)
+    consensus_models: list[str] = Field(
+        default_factory=lambda: _yaml_value("models", "consensus_models", [])
+    )
 
 
 class MemorySettings(BaseSettings):

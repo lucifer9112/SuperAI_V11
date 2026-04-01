@@ -78,7 +78,11 @@ async def ws_chat(ws: WebSocket) -> None:
                 await _mgr.send(ws, {"type": "error", "data": "Rate limit exceeded"})
                 await ws.close(code=1008, reason="Rate limit exceeded")
                 break
-            msg = json.loads(raw)
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                await _mgr.send(ws, {"type": "error", "data": "Invalid JSON"})
+                continue
             t = msg.get("type", "")
 
             if t == "ping":

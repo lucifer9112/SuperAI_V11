@@ -183,12 +183,18 @@ class OrchestratorV11:
             full.append(tok)
             yield tok
 
-        full_text = "".join(full)
+        raw_text = "".join(full)
+        full_text = raw_text
         resolved_model_name = self._resolved_model_name(model_name)
         if self._security and self._security.cfg.output_filter:
             full_text = self._security.filter_output(full_text)
         if self._personality:
             full_text = self._personality.personalize_response(full_text, sid)
+
+        # If the filter changed the response, yield a correction event so the
+        # client can replace the previously-streamed tokens.
+        if full_text != raw_text:
+            yield f"\n[FILTERED]{full_text}"
 
         if self._memory:
             await self._memory.save_turn(sid, req.prompt, full_text, response_id=rid)
@@ -215,12 +221,12 @@ class OrchestratorV11:
             v=self._security.validate(req.prompt)
             if v: raise SecurityViolationError("Input blocked",detail=v)
 
+        # [F6] Correction check — before fast-path so self-improvement sees all corrections
+        if self._improve: await self._improve.check_correction(req.prompt, sid)
+
         task_type=req.force_task or self.route_prompt(req.prompt)
         if self._should_fast_path(req, task_type):
             return await self._fast_chat(req, sid, rid, t0, task_type)
-
-        # [F6] Correction check
-        if self._improve: await self._improve.check_correction(req.prompt, sid)
 
         # [F11] Personality emotion
         emotion="neutral"
@@ -234,8 +240,9 @@ class OrchestratorV11:
         if self._uni_memory:
             try: mem_ctx=await self._uni_memory.retrieve(sid, req.prompt)
             except Exception as e: logger.warning("UniMemory failed",error=str(e))
-        context=mem_ctx.get("recent_turns") or \
+        context=mem_ctx.get("recent_turns") or (
                 await self._memory.get_context(session_id=sid,prompt=req.prompt)
+                if self._memory else [])
 
         # [F5] RAG++
         rag_ctx=""
@@ -321,15 +328,17 @@ class OrchestratorV11:
             except Exception: pass
 
         # Persist
-        await self._memory.save_turn(sid,req.prompt,answer,response_id=rid)
+        if self._memory:
+            await self._memory.save_turn(sid,req.prompt,answer,response_id=rid)
         if self._uni_memory and hasattr(self._uni_memory,"_episodic"):
             try: await self._uni_memory._episodic.store(sid,req.prompt,answer,importance=confidence)
             except Exception: pass
 
         # Metrics
         ms=(time.perf_counter()-t0)*1000
-        self._monitoring.record_request(task_type=task_type.value,model=model_name,
-                                         latency_ms=ms,tokens=tokens)
+        if self._monitoring:
+            self._monitoring.record_request(task_type=task_type.value,model=model_name,
+                                             latency_ms=ms,tokens=tokens)
 
         return ChatResponse(answer=answer,session_id=sid,task_type=task_type.value,
             model_used=model_name,tokens_used=tokens,latency_ms=round(ms,2),
@@ -351,14 +360,15 @@ class OrchestratorV11:
             v=self._security.validate(req.prompt)
             if v: raise SecurityViolationError("Input blocked",detail=v)
 
+        # [F6] Correction check — before fast-path so self-improvement sees all corrections
+        if self._improve:
+            await self._improve.check_correction(req.prompt, sid)
+
         task_type=req.force_task or self.route_prompt(req.prompt)
         if self._should_fast_path(req, task_type):
             async for tok in self._fast_chat_stream(req, sid, rid, t0, task_type):
                 yield tok
             return
-
-        if self._improve:
-            await self._improve.check_correction(req.prompt, sid)
 
         emotion="neutral"
         if self._personality:
@@ -372,7 +382,8 @@ class OrchestratorV11:
                 mem_ctx=await self._uni_memory.retrieve(sid, req.prompt)
             except Exception as e:
                 logger.warning("UniMemory failed", error=str(e))
-        context=mem_ctx.get("recent_turns") or await self._memory.get_context(sid,req.prompt)
+        context=mem_ctx.get("recent_turns") or (
+            await self._memory.get_context(sid,req.prompt) if self._memory else [])
         rag_ctx=""
         if self._rag and task_type in (TaskType.SEARCH,TaskType.CHAT,TaskType.DOCUMENT):
             try:
@@ -404,7 +415,8 @@ class OrchestratorV11:
         full=[]
         async for tok in self._models.stream(model_name,prompt,req.max_tokens,req.temperature):
             full.append(tok); yield tok
-        full_text="".join(full)
+        raw_text="".join(full)
+        full_text=raw_text
         model_name=self._resolved_model_name(model_name)
 
         # [F1] Self-reflection on completed stream
@@ -425,13 +437,19 @@ class OrchestratorV11:
         if self._personality:
             full_text=self._personality.personalize_response(full_text,sid)
 
+        # If the filter/reflection/personality changed the response, yield a
+        # correction event so the client can replace the previously-streamed tokens.
+        if full_text != raw_text:
+            yield f"\n[FILTERED]{full_text}"
+
         if self._rlhf:
             try:
                 await self._rlhf.score_response(req.prompt,full_text)
             except Exception:
                 pass
 
-        await self._memory.save_turn(sid,req.prompt,full_text,response_id=rid)
+        if self._memory:
+            await self._memory.save_turn(sid,req.prompt,full_text,response_id=rid)
         if self._uni_memory and hasattr(self._uni_memory,"_episodic"):
             try:
                 await self._uni_memory._episodic.store(sid,req.prompt,full_text,importance=confidence)
@@ -439,12 +457,13 @@ class OrchestratorV11:
                 pass
 
         tokens=await self.count_text_tokens(model_name, full_text)
-        self._monitoring.record_request(
-            task_type=task_type.value if hasattr(task_type, "value") else str(task_type),
-            model=model_name,
-            latency_ms=(time.perf_counter()-t0)*1000,
-            tokens=tokens,
-        )
+        if self._monitoring:
+            self._monitoring.record_request(
+                task_type=task_type.value if hasattr(task_type, "value") else str(task_type),
+                model=model_name,
+                latency_ms=(time.perf_counter()-t0)*1000,
+                tokens=tokens,
+            )
 
     async def code(self, req: CodeRequest) -> CodeResponse:
         model=self._router.select_model(TaskType.CODE)

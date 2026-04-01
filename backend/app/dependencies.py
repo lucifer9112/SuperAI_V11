@@ -41,8 +41,9 @@ class ServiceContainer:
         self._monitoring_service = MonitoringService()
         self._model_loader = ModelLoader(cfg=settings.models)
         self._security_engine = SecurityEngine(cfg=settings.security)
-        self._feedback_service = FeedbackService(cfg=settings.feedback)
-        await self._feedback_service.init()
+        if settings.feedback.enabled:
+            self._feedback_service = FeedbackService(cfg=settings.feedback)
+            await self._feedback_service.init()
 
         if settings.memory.enabled:
             self._memory_service = SimpleMemoryService(cfg=settings.memory)
@@ -208,7 +209,8 @@ class ServiceContainer:
         from backend.consensus.consensus_engine import ConsensusEngine
         from backend.consensus.consensus_engine import VotingStrategy
 
-        model_names = list(dict.fromkeys([settings.models.primary]))
+        consensus_models = settings.models.consensus_models or [settings.models.primary]
+        model_names = list(dict.fromkeys(consensus_models))
         self._consensus_engine = ConsensusEngine(
             loader=self._model_loader,
             model_names=model_names,

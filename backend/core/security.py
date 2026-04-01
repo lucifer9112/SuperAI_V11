@@ -84,8 +84,11 @@ class SecurityEngine:
             r = subprocess.run(["bandit", "-r", tmp, "-f", "txt", "-q"],
                                capture_output=True, text=True, timeout=15)
             issues = [l.strip() for l in r.stdout.splitlines() if l.startswith(">>")]
+        except FileNotFoundError:
+            logger.warning("bandit not installed, skipping static scan. Run: pip install bandit")
+            issues = self._heuristic_scan_code(code)
         except Exception as e:
-            logger.warning("bandit scan skipped", error=str(e))
+            logger.warning("bandit scan failed", error=str(e))
             issues = self._heuristic_scan_code(code)
         finally:
             Path(tmp).unlink(missing_ok=True)

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import inspect
 import json
 import sys
 import tempfile
@@ -40,6 +41,20 @@ NGROK_BYPASS_HEADERS = {
     "ngrok-skip-browser-warning": "true",
     "User-Agent": "SuperAI-V11-SmokeTest/1.0",
 }
+
+
+def _websocket_header_kwargs() -> dict[str, Any]:
+    """Support both old and new websockets header parameter names."""
+    try:
+        signature = inspect.signature(websockets.connect)
+    except Exception:
+        return {"additional_headers": NGROK_BYPASS_HEADERS}
+
+    if "additional_headers" in signature.parameters:
+        return {"additional_headers": NGROK_BYPASS_HEADERS}
+    if "extra_headers" in signature.parameters:
+        return {"extra_headers": NGROK_BYPASS_HEADERS}
+    return {}
 
 
 @dataclass
@@ -541,9 +556,9 @@ class SmokeTester:
         try:
             async with websockets.connect(
                 url,
-                extra_headers=NGROK_BYPASS_HEADERS,
                 open_timeout=20,
                 close_timeout=10,
+                **_websocket_header_kwargs(),
             ) as ws:
                 await ws.send(json.dumps({"type": "ping"}))
                 pong = json.loads(await asyncio.wait_for(ws.recv(), timeout=20))

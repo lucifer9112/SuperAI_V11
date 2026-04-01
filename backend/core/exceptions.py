@@ -42,7 +42,7 @@ class ModelInferenceError(SuperAIError):
 class SecurityViolationError(SuperAIError):
     status_code = 422; error_code = "SECURITY_VIOLATION"
 
-class MemoryError(SuperAIError):  # noqa: A001
+class MemoryServiceError(SuperAIError):
     error_code = "MEMORY_ERROR"
 
 class AgentError(SuperAIError):

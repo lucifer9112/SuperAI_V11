@@ -276,11 +276,11 @@ class RLHFPipeline:
         self.cfg        = cfg
         self._monitoring = monitoring
         self._converter = FeedbackToRLHFConverter(feedback_db, conv_db, monitoring=monitoring)
-        out_dir         = getattr(cfg, "rlhf_output_dir", "data/rlhf_checkpoints/")
+        out_dir         = getattr(cfg, "rlhf_output_dir", "data/rlhf_checkpoints/") if cfg else "data/rlhf_checkpoints/"
         self._dpo       = DPOTrainer(out_dir)
         self._grpo      = GRPOTrainer(out_dir)
         self._runs: List[TrainingRun] = []
-        self._log_db    = Path(getattr(cfg, "rlhf_log_db", "data/rlhf_logs.db"))
+        self._log_db    = Path(getattr(cfg, "rlhf_log_db", "data/rlhf_logs.db") if cfg else "data/rlhf_logs.db")
         self._reward_model = None
         self._scheduler_task = None
 

@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import io
-import math
-import struct
 import tempfile
 import wave
 from pathlib import Path
@@ -128,14 +126,13 @@ class VoiceService:
         return self._stt
 
     @staticmethod
-    def _fallback_wav(duration_s: float = 0.25, sample_rate: int = 16000) -> bytes:
+    def _fallback_wav(duration_s: float = 0.1, sample_rate: int = 16000) -> bytes:
+        """Return a short silent WAV instead of a misleading 440Hz tone."""
         frame_count = max(1, int(duration_s * sample_rate))
         buffer = io.BytesIO()
         with wave.open(buffer, "wb") as wav_file:
             wav_file.setnchannels(1)
             wav_file.setsampwidth(2)
             wav_file.setframerate(sample_rate)
-            for idx in range(frame_count):
-                sample = int(900 * math.sin(2 * math.pi * 440 * (idx / sample_rate)))
-                wav_file.writeframes(struct.pack("<h", sample))
+            wav_file.writeframes(b"\x00\x00" * frame_count)  # silence
         return buffer.getvalue()

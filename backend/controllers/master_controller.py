@@ -187,8 +187,8 @@ class MasterController:
             "task_type": task_type,
             "model_name": model_name,
             "prompt": self._build_prompt(req.prompt, task_type, context),
-            "max_tokens": req.max_tokens or settings.models.default_max_tokens,
-            "temperature": req.temperature or settings.models.default_temperature,
+            "max_tokens": req.max_tokens if req.max_tokens is not None else settings.models.default_max_tokens,
+            "temperature": req.temperature if req.temperature is not None else settings.models.default_temperature,
         }
 
     async def _count_tokens(self, model_name: str, text: str) -> int:

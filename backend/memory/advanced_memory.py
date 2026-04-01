@@ -63,7 +63,6 @@ class Episode:
 class ContextMemory(Protocol):
     async def get_context(self, session_id: str, prompt: str) -> List[dict[str, str]]:
         ...
-    importance:  float     = 1.0
 
 
 class EpisodicMemory:

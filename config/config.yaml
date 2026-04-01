@@ -24,6 +24,9 @@ models:
   primary: "Qwen/Qwen2.5-0.5B-Instruct"
   fallback_models:
     - "sshleifer/tiny-gpt2"
+  consensus_models:
+    - "Qwen/Qwen2.5-0.5B-Instruct"
+    - "sshleifer/tiny-gpt2"
 
 logging:
   level: "INFO"

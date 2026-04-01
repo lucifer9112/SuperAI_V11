@@ -177,17 +177,45 @@ class AgentService:
             return f"Search failed: {e}"
 
     async def _run_code(self, code: str) -> str:
+        import ast
         import subprocess
         import sys
+        import tempfile
+
+        # AST-based safety validation (mirrors tool_executor._validate_python_code)
+        blocked_modules = {"os", "sys", "subprocess", "shutil", "socket", "ctypes",
+                           "importlib", "pathlib", "signal", "multiprocessing"}
+        blocked_calls = {"exec", "eval", "compile", "open", "__import__",
+                         "exit", "quit", "globals", "locals", "vars", "dir"}
+        try:
+            tree = ast.parse(code, mode="exec")
+        except SyntaxError as exc:
+            return f"Syntax error: {exc}"
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root = alias.name.split(".")[0]
+                    if root in blocked_modules:
+                        return f"Blocked import: {alias.name}"
+            elif isinstance(node, ast.ImportFrom):
+                root = (node.module or "").split(".")[0]
+                if root in blocked_modules:
+                    return f"Blocked import: {node.module}"
+            elif isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name) and node.func.id in blocked_calls:
+                    return f"Blocked call: {node.func.id}"
 
         try:
-            r = subprocess.run(
-                [sys.executable, "-c", code],
-                capture_output=True,
-                text=True,
-                timeout=self.cfg.tool_timeout,
-            )
-            return (r.stdout or r.stderr)[:500]
+            with tempfile.TemporaryDirectory(prefix="superai_agent_") as temp_dir:
+                r = subprocess.run(
+                    [sys.executable, "-I", "-c", code],
+                    capture_output=True,
+                    text=True,
+                    timeout=self.cfg.tool_timeout,
+                    cwd=temp_dir,
+                )
+            return (r.stdout or r.stderr or "(No output)")[:500]
         except Exception as e:
             return f"Code error: {e}"
 

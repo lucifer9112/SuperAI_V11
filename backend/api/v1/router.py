@@ -50,6 +50,11 @@ if _feature_enabled("enable_context"):
 
     api_router.include_router(files.router, prefix="/files", tags=["Files"])
     api_router.include_router(context_api.router, prefix="/context", tags=["Context"])
+else:
+    # File upload is always available even without context compression
+    from backend.api.v1 import files
+
+    api_router.include_router(files.router, prefix="/files", tags=["Files"])
 
 if _feature_enabled("enable_code_review", "enable_debugging"):
     from backend.api.v1 import code
