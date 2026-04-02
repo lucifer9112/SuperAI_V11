@@ -1,6 +1,6 @@
 # ================================================================
 # SuperAI V11 - requirements/dev.txt
-# Development + testing (includes base)
+# Development + testing (includes base + dev tools).
 # ================================================================
 
 -r base.txt

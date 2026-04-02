@@ -61,6 +61,11 @@ async def improve_suggest(svc=Depends(get_self_improvement)) -> APIResponse:
     return APIResponse(data={"suggestions": suggestions, "count": len(suggestions)})
 
 
+async def suggestions(svc=Depends(get_self_improvement)) -> APIResponse:
+    """Backward-compatible alias for older imports/tests."""
+    return await improve_suggest(svc)
+
+
 class RegisterModelRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 

@@ -1,3 +1,8 @@
--r ../requirements.txt
+# ================================================================
+# SuperAI V11 - requirements/prod.txt
+# Production deployment (includes gunicorn for multi-worker serving).
+# ================================================================
+
+-r base.txt
 
 gunicorn==22.0.0

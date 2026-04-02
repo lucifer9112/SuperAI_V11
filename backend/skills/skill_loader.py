@@ -1,5 +1,5 @@
 """
-SuperAI V12 — backend/skills/skill_loader.py
+SuperAI V11 — backend/skills/skill_loader.py
 
 Loads and parses SKILL.md files (YAML frontmatter + markdown body).
 Extracts: name, description, trigger keywords, activation conditions,

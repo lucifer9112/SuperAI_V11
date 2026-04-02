@@ -1,5 +1,5 @@
 """
-SuperAI V12 — backend/skills/skill_registry.py
+SuperAI V11 — backend/skills/skill_registry.py
 
 Registry for loaded skills with auto-activation based on prompt keywords.
 Returns enriched system prompts with injected skill instructions.
@@ -116,11 +116,16 @@ class SkillRegistry:
             self._bundles[bundle.name] = bundle
 
     def load(self, directory: str) -> int:
-        """Load skills from directory. Returns count loaded."""
+        """Load skills from directory. Returns count loaded (skips duplicates)."""
         skills = self._loader.load_directory(directory)
+        loaded = 0
         for skill in skills:
+            if skill.name in self._skills:
+                logger.debug("Skill already loaded, skipping duplicate", name=skill.name)
+                continue
             self._skills[skill.name] = skill
-        return len(skills)
+            loaded += 1
+        return loaded
 
     def register(self, skill: Skill) -> None:
         """Manually register a skill."""

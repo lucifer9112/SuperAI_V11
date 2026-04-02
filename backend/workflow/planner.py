@@ -1,5 +1,5 @@
 """
-SuperAI V12 — backend/workflow/planner.py
+SuperAI V11 — backend/workflow/planner.py
 
 Plan Writing phase: decomposes a design document into bite-sized tasks.
 Each task has description, target files, verification criteria, effort,

@@ -1,5 +1,5 @@
 """
-SuperAI V12 — backend/cognitive/bdi_engine.py
+SuperAI V11 — backend/cognitive/bdi_engine.py
 
 BDI (Belief-Desire-Intention) Cognitive Engine.
 Tracks agent mental states: beliefs about the world, desires (goals),

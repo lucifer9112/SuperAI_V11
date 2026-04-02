@@ -1,1 +1,6 @@
--r ../requirements-colab.txt
+# ================================================================
+# SuperAI V11 - requirements/colab.txt
+# Google Colab environment (same as base — torch is pre-installed).
+# ================================================================
+
+-r base.txt

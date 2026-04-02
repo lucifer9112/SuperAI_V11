@@ -1,5 +1,5 @@
 """
-SuperAI V12 — backend/workflow/executor.py
+SuperAI V11 — backend/workflow/executor.py
 
 Execution phase: dispatches plan tasks to subagents.
 After each task, runs 2-stage review (spec compliance + code quality).

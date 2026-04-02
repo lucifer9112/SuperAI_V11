@@ -1,5 +1,5 @@
 """
-SuperAI V12 — backend/workflow/brainstorm.py
+SuperAI V11 — backend/workflow/brainstorm.py
 
 Brainstorming phase: Socratic design refinement.
 Takes a rough idea, generates clarifying questions, and refines into

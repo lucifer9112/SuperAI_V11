@@ -1,1 +1,6 @@
+# ================================================================
+# SuperAI V11 - requirements/base.txt
+# Core runtime dependencies (references the canonical file).
+# ================================================================
+
 -r ../requirements.txt

@@ -1,5 +1,5 @@
 """
-SuperAI V12 — backend/context/context_compressor.py
+SuperAI V11 — backend/context/context_compressor.py
 
 Context Compression Engine: manages token budgets, compresses context
 using multiple strategies, and detects degradation patterns.

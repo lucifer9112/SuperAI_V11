@@ -1,5 +1,5 @@
 """
-SuperAI V12 — backend/evaluation/llm_judge.py
+SuperAI V11 — backend/evaluation/llm_judge.py
 
 LLM-as-Judge Evaluator: multi-criteria evaluation engine.
 Supports rubric-based scoring, pairwise comparison, and calibration.

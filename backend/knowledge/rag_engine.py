@@ -140,7 +140,9 @@ class RAGEngine:
 
     def __init__(self, cfg, monitoring=None) -> None:
         self.cfg         = cfg
-        self._enabled    = getattr(cfg, "enabled", False) if cfg is not None else False
+        # When cfg is None (loaded via container), default to enabled=True.
+        # Feature gating happens at the dependency-container level.
+        self._enabled    = getattr(cfg, "enabled", True) if cfg is not None else True
         self._chunk_size = getattr(cfg, "chunk_size", 400)
         self._overlap    = getattr(cfg, "chunk_overlap", 80)
         self._top_k      = getattr(cfg, "top_k_chunks", 5)

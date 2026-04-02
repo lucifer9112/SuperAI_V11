@@ -1,5 +1,5 @@
 """
-SuperAI V12 — backend/workflow/reviewer.py
+SuperAI V11 — backend/workflow/reviewer.py
 
 Review phase: evaluates agent output against the original plan.
 Scores issues by severity (critical/warning/info).

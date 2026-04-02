@@ -1,5 +1,5 @@
 """
-SuperAI V12 — backend/debugging/debugger.py
+SuperAI V11 — backend/debugging/debugger.py
 
 Systematic Debugging Engine: 4-phase root cause analysis.
 1. Reproduce — analyze error, identify reproduction steps

@@ -302,7 +302,7 @@ class LearningPipeline:
         }
 
     async def _scheduler_loop(self) -> None:
-        interval = getattr(self.cfg, "scheduler_interval_hours", 6) * 3600
+        interval = (getattr(self.cfg, "scheduler_interval_hours", 6) if self.cfg else 6) * 3600
         while True:
             try:
                 await asyncio.sleep(interval)

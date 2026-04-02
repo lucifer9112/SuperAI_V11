@@ -256,11 +256,11 @@ class ParallelAgentExecutor:
         return best.answer, best.agent_type
 
 
-# ── V12: Subagent Orchestrator ────────────────────────────────────
+# ── V11: Subagent Orchestrator ────────────────────────────────────
 
 class SubagentOrchestrator:
     """
-    V12 Enhancement: dispatches tasks to fresh subagents with 2-stage review.
+    V11 Enhancement: dispatches tasks to fresh subagents with 2-stage review.
     Stage 1: spec compliance (does the output match requirements?)
     Stage 2: quality review (correctness, style, edge cases)
 

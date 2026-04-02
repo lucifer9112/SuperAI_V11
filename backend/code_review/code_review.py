@@ -1,5 +1,5 @@
 """
-SuperAI V12 — backend/code_review/code_review.py
+SuperAI V11 — backend/code_review/code_review.py
 
 Code Review Engine: evaluates code or diffs against configurable criteria.
 Returns issues with severity levels and suggested fixes.

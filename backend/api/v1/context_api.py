@@ -1,4 +1,4 @@
-"""SuperAI V12 — backend/api/v1/context_api.py — Context compression & optimization."""
+"""SuperAI V11 — backend/api/v1/context_api.py — Context compression & optimization."""
 from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel

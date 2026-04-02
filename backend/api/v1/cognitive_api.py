@@ -1,4 +1,4 @@
-"""SuperAI V12 — backend/api/v1/cognitive_api.py — BDI cognitive engine."""
+"""SuperAI V11 — backend/api/v1/cognitive_api.py — BDI cognitive engine."""
 from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel

@@ -1,5 +1,5 @@
 """
-SuperAI V12 — backend/workflow/engine.py
+SuperAI V11 — backend/workflow/engine.py
 
 Top-level Workflow Engine orchestrator.
 Manages the full pipeline: brainstorm → plan → execute → review → complete.
@@ -43,7 +43,7 @@ class WorkflowEngine:
         self._reviewer = WorkflowReviewer(model_loader)
         self._workflows: Dict[str, WorkflowState] = {}
         self._max_workflows = max_workflows
-        logger.info("WorkflowEngine V12 ready")
+        logger.info("WorkflowEngine V11 ready")
 
     # ── Lifecycle ─────────────────────────────────────────────────
 

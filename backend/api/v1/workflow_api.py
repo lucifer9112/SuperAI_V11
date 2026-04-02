@@ -1,4 +1,4 @@
-"""SuperAI V12 — backend/api/v1/workflow_api.py
+"""SuperAI V11 — backend/api/v1/workflow_api.py
 
 REST endpoints for the Agentic Workflow Engine.
 """

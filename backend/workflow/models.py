@@ -1,5 +1,5 @@
 """
-SuperAI V12 — backend/workflow/models.py
+SuperAI V11 — backend/workflow/models.py
 
 Data models for the Agentic Workflow Engine.
 Tracks workflow lifecycle: BRAINSTORM → PLAN → EXECUTE → REVIEW → COMPLETE.

@@ -279,7 +279,7 @@ class SelfImprovementEngine:
     async def init(self) -> None:
         await self._logger.init()
         if self._enabled:
-            interval = getattr(self.cfg, "analysis_interval_hours", 12) * 3600
+            interval = (getattr(self.cfg, "analysis_interval_hours", 12) if self.cfg else 12) * 3600
             self._task = asyncio.create_task(self._analysis_loop(interval))
         logger.info("SelfImprovementEngine ready")
 

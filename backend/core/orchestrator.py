@@ -221,12 +221,13 @@ class OrchestratorV11:
             v=self._security.validate(req.prompt)
             if v: raise SecurityViolationError("Input blocked",detail=v)
 
-        # [F6] Correction check — before fast-path so self-improvement sees all corrections
-        if self._improve: await self._improve.check_correction(req.prompt, sid)
-
         task_type=req.force_task or self.route_prompt(req.prompt)
         if self._should_fast_path(req, task_type):
             return await self._fast_chat(req, sid, rid, t0, task_type)
+
+        # [F6] Correction check on the full pipeline only; the fast path stays lightweight.
+        if self._improve:
+            await self._improve.check_correction(req.prompt, sid)
 
         # [F11] Personality emotion
         emotion="neutral"
@@ -360,15 +361,15 @@ class OrchestratorV11:
             v=self._security.validate(req.prompt)
             if v: raise SecurityViolationError("Input blocked",detail=v)
 
-        # [F6] Correction check — before fast-path so self-improvement sees all corrections
-        if self._improve:
-            await self._improve.check_correction(req.prompt, sid)
-
         task_type=req.force_task or self.route_prompt(req.prompt)
         if self._should_fast_path(req, task_type):
             async for tok in self._fast_chat_stream(req, sid, rid, t0, task_type):
                 yield tok
             return
+
+        # [F6] Correction check on the full pipeline only; the fast path stays lightweight.
+        if self._improve:
+            await self._improve.check_correction(req.prompt, sid)
 
         emotion="neutral"
         if self._personality:

@@ -81,8 +81,12 @@ class SecurityEngine:
             f.write(code)
             tmp = f.name
         try:
-            r = subprocess.run(["bandit", "-r", tmp, "-f", "txt", "-q"],
-                               capture_output=True, text=True, timeout=15)
+            import asyncio
+            r = await asyncio.to_thread(
+                subprocess.run,
+                ["bandit", "-r", tmp, "-f", "txt", "-q"],
+                capture_output=True, text=True, timeout=15,
+            )
             issues = [l.strip() for l in r.stdout.splitlines() if l.startswith(">>")]
         except FileNotFoundError:
             logger.warning("bandit not installed, skipping static scan. Run: pip install bandit")

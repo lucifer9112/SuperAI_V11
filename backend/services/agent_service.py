@@ -132,7 +132,7 @@ class AgentService:
     async def _think(self, goal: str, history: List[AgentStep], step: int, agent_id: str):
         hist_text = "\n".join(f"Step {s.step}: [{s.action}] -> {s.result[:100]}" for s in history[-5:])
 
-        shared = await self._coord.context.get_all()
+        shared = await self._coord.context.get_all(agent_id=agent_id)
         ctx_text = ""
         if shared:
             ctx_text = "\nShared context from other agents:\n" + "\n".join(

@@ -1,6 +1,7 @@
 """SuperAI V11 - backend/api/ws/chat_ws.py - Real-time WebSocket chat."""
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -17,6 +18,7 @@ from backend.config.settings import settings
 ws_router = APIRouter()
 MAX_CONNECTIONS = 100
 MAX_MSG_PER_MIN = 20
+WS_IDLE_TIMEOUT_S = 300  # Close idle connections after 5 minutes
 
 
 class _ConnMgr:
@@ -73,7 +75,14 @@ async def ws_chat(ws: WebSocket) -> None:
     logger.info("WS connected", cid=cid, total=_mgr.count)
     try:
         while True:
-            raw = await ws.receive_text()
+            try:
+                raw = await asyncio.wait_for(
+                    ws.receive_text(), timeout=WS_IDLE_TIMEOUT_S
+                )
+            except asyncio.TimeoutError:
+                await _mgr.send(ws, {"type": "error", "data": "Idle timeout"})
+                await ws.close(code=1000, reason="Idle timeout")
+                break
             if not _mgr.allow_message(cid):
                 await _mgr.send(ws, {"type": "error", "data": "Rate limit exceeded"})
                 await ws.close(code=1008, reason="Rate limit exceeded")

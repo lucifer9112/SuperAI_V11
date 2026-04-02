@@ -291,7 +291,7 @@ class RLHFPipeline:
         await self._reward_model.init()
         await self._init_db()
         # Start background scheduler
-        interval = getattr(self.cfg, "rlhf_scheduler_hours", 24) * 3600
+        interval = (getattr(self.cfg, "rlhf_scheduler_hours", 24) if self.cfg else 24) * 3600
         self._scheduler_task = asyncio.create_task(self._scheduler_loop(interval))
         logger.info("RLHFPipeline ready")
 
@@ -345,7 +345,8 @@ class RLHFPipeline:
             try:
                 await asyncio.sleep(interval)
                 pairs = await self._converter.build_pairs()
-                if len(pairs) >= getattr(self.cfg, "rlhf_min_pairs", 10):
+                min_pairs = getattr(self.cfg, "rlhf_min_pairs", 10) if self.cfg else 10
+                if len(pairs) >= min_pairs:
                     logger.warning("RLHF_SCHEDULE: Enough pairs for training",
                                    pairs=len(pairs))
             except asyncio.CancelledError:

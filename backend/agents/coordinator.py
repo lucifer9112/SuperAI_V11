@@ -70,10 +70,15 @@ class ContextBus:
                     return entry.value
             return None
 
-    async def get_all(self) -> Dict[str, Any]:
-        """Return all non-expired context as flat dict."""
+    async def get_all(self, agent_id: Optional[str] = None) -> Dict[str, Any]:
+        """Return non-expired context as flat dict, optionally scoped to one agent."""
         async with self._lock:
             self._evict()
+            if agent_id:
+                return {
+                    k: e.value for k, e in self._store.items()
+                    if k.startswith(f"{agent_id}:")
+                }
             return {k: e.value for k, e in self._store.items()}
 
     async def clear_agent(self, agent_id: str) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import time
 
@@ -24,11 +25,13 @@ async def status(
     fb=Depends(get_feedback_service),
 ):
     vm = psutil.virtual_memory()
-    cpu = psutil.cpu_percent(interval=0.1)
+    # Run blocking cpu_percent in a thread to avoid blocking the event loop
+    cpu = await asyncio.to_thread(psutil.cpu_percent, interval=0.1)
     gpu = None
     monitoring_summary = mon.summary() if mon and hasattr(mon, "summary") else {}
     try:
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             ["nvidia-smi", "--query-gpu=name,memory.used,memory.total", "--format=csv,noheader,nounits"],
             capture_output=True,
             text=True,

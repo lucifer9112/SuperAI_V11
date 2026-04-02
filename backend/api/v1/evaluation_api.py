@@ -1,4 +1,4 @@
-"""SuperAI V12 — backend/api/v1/evaluation_api.py — LLM-as-Judge evaluation."""
+"""SuperAI V11 — backend/api/v1/evaluation_api.py — LLM-as-Judge evaluation."""
 from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel
